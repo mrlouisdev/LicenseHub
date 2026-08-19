@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LicenseHub signed lease payload",
+  "description": "JSON in the first base64url segment. Ed25519 signs that encoded segment, not decoded JSON bytes.",
+  "type": "object",
+  "required": ["version", "kid", "license_id", "product_id", "device_id", "entitlements", "iat", "exp"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "kid": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9._-]+$" },
+    "license_id": { "type": "string", "minLength": 1 },
+    "product_id": { "type": "string", "minLength": 1 },
+    "device_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "entitlements": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "iat": { "type": "integer", "minimum": 0 },
+    "exp": { "type": "integer", "minimum": 1 },
+    "plan_id": { "type": "string" },
+    "status": { "type": "string" },
+    "grace_days": { "type": "integer", "minimum": 0 },
+    "nonce": { "type": "string", "minLength": 16 },
+    "fingerprint": { "type": "string", "pattern": "^[a-f0-9]{16}$" }
+  },
+  "additionalProperties": false
+}

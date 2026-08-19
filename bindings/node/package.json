@@ -1,0 +1,12 @@
+{
+  "name": "@licensehub/licensing",
+  "version": "0.1.0",
+  "description": "Typed Node/Electron binding for LicenseHub Core ABI v1",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": { ".": { "types": "./src/index.d.ts", "require": "./src/index.js", "default": "./src/index.js" } },
+  "files": ["src", "native"],
+  "scripts": { "test": "node --test test/*.test.js", "pack:check": "npm pack --dry-run" },
+  "engines": { "node": ">=20" },
+  "dependencies": { "koffi": "^2.14.1" }
+}

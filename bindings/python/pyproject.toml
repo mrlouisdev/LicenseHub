@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "licensehub-licensing"
+version = "0.1.0"
+description = "Typed Python binding for LicenseHub Core ABI v1"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["licensehub_licensing*"]
+
+[tool.setuptools.package-data]
+licensehub_licensing = ["_native/*/*"]

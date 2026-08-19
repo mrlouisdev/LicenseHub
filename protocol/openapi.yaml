@@ -1,0 +1,178 @@
+openapi: 3.1.0
+info:
+  title: LicenseHub Client API
+  version: 1.0.0
+  description: Stable public contract used by all LicenseHub client bindings.
+servers:
+  - url: https://license.example.com
+paths:
+  /v1/client/public-keys:
+    get:
+      operationId: getPublicKeys
+      summary: Fetch the Ed25519 verification key ring
+      responses:
+        '200':
+          description: Map of key ID to standard-base64 encoded 32-byte public key
+          headers:
+            Cache-Control:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicKeysResponse' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /v1/client/activate:
+    post:
+      operationId: activateLicense
+      summary: Bind a license to a device and issue a signed lease
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActivateRequest' }
+      responses:
+        '200':
+          description: Device activated or existing activation reused
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivateResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ActivationLimit' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /v1/client/refresh:
+    post:
+      operationId: refreshLease
+      summary: Verify the active device and issue a fresh signed lease
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaseRequest' }
+      responses:
+        '200':
+          description: Fresh lease
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeaseResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /v1/client/deactivate:
+    post:
+      operationId: deactivateLicense
+      summary: Release the current device activation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaseRequest' }
+      responses:
+        '200':
+          description: Activation released; client deletes any cached lease
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeactivateResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Unique client-generated identifier for activation retries.
+      schema: { type: string, minLength: 8, maxLength: 128 }
+  schemas:
+    ActivateRequest:
+      type: object
+      required: [license_key, product_id, device_id]
+      additionalProperties: false
+      properties:
+        license_key: { type: string, minLength: 1 }
+        product_id: { type: string, minLength: 1 }
+        device_id: { type: string, minLength: 1, maxLength: 256 }
+        label: { type: string, maxLength: 128 }
+    LeaseRequest:
+      type: object
+      required: [product_id, device_id, lease]
+      additionalProperties: false
+      properties:
+        product_id: { type: string, minLength: 1 }
+        device_id: { type: string, minLength: 1, maxLength: 256 }
+        lease: { $ref: '#/components/schemas/Lease' }
+    Lease:
+      type: string
+      description: base64url JSON followed by base64url Ed25519 signature over the encoded payload
+      pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
+    LeaseResponse:
+      type: object
+      required: [lease]
+      additionalProperties: false
+      properties:
+        lease: { $ref: '#/components/schemas/Lease' }
+    ActivateResponse:
+      type: object
+      required: [lease, status, license_id]
+      additionalProperties: false
+      properties:
+        lease: { $ref: '#/components/schemas/Lease' }
+        status: { type: string, enum: [activated, already_activated] }
+        license_id: { type: string }
+    PublicKeysResponse:
+      type: object
+      required: [keys]
+      additionalProperties: false
+      properties:
+        keys:
+          type: object
+          minProperties: 1
+          additionalProperties:
+            type: string
+            description: Standard-base64 encoded 32-byte Ed25519 public key
+            pattern: '^[A-Za-z0-9+/]{43}=$'
+    DeactivateResponse:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status: { type: string, const: deactivated }
+    ErrorEnvelope:
+      type: object
+      required: [success, error]
+      additionalProperties: false
+      properties:
+        success: { type: boolean, const: false }
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: {}
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    NotFound:
+      description: License unavailable, unusable, wrong product or not active on this device
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    ActivationLimit:
+      description: No free activation slots
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    RateLimited:
+      description: Client or source IP is rate limited
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }

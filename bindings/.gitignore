@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+**/node_modules/
+**/__pycache__/
+**/*.egg-info/
+**/build/
+**/dist/
+cpp/tests/*.exe
+cpp/tests/*.obj

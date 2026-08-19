@@ -1,0 +1,27 @@
+{
+  "format_version": 1,
+  "release": "0.1.0",
+  "created_at_utc": "2026-08-19T09:10:00Z",
+  "platform": "windows-x64",
+  "artifacts": [
+    {"name":"licensehub-server","path":"server/bin/licensehub-server-final.exe","bytes":50776576,"sha256":"5ef65e175177fd6595841d082cccf91db02e859e10c6484d2b8a46ef193c32cc"},
+    {"name":"license-core","path":"core/target/release/license_core.dll","bytes":3762688,"sha256":"6ace2063df5961127bbf5f82b663aec732ba8c8d98338b5d7313ea1ad3b8868e"},
+    {"name":"licensehub-console-portable","path":"console/src-tauri/target/release/licensehub-console.exe","bytes":12845056,"sha256":"d5eb40a6d95eb04de10e915343d6460eb34caab23a807cabd9da9e7fe722ac36"},
+    {"name":"licensehub-console-installer","path":"console/src-tauri/target/release/bundle/nsis/LicenseHub Console_0.1.0_x64-setup.exe","bytes":3424161,"sha256":"f9a85afeb7e3aa0c05080198939feb097b4b312be539f53eb18b69b67812d585"},
+    {"name":"dotnet-binding","path":"bindings/dotnet/dist/LicenseHub.Licensing.0.1.0.nupkg","bytes":1660840,"sha256":"c37873652dc548cd1101dcf9ab45055a727201f4096b0cd1e0e29c4babf4a385"},
+    {"name":"node-electron-binding","path":"bindings/node/dist/licensehub-licensing-0.1.0.tgz","bytes":1699512,"sha256":"465a01246fbec828a2396f55ef393ab6dacda7e97ef196ad3996505a4c374cb8"},
+    {"name":"python-binding","path":"bindings/python/dist/licensehub_licensing-0.1.0-py3-none-win_amd64.whl","bytes":1653495,"sha256":"59ad3553ff7739365129043bc42ef81520ea4be7dc3f19b7d231cf47200601d4"},
+    {"name":"licctl","path":"cli/licctl/dist/win-x64/licctl.exe","bytes":67507222,"sha256":"9dd56c0c2d2322cbb0604d77ae6cdc5578992d193d73622ba3214a131e96e186"}
+  ],
+  "verification": {
+    "go_unit_vet_build":"pass",
+    "rust_fmt_clippy_tests_release":"pass (10 tests)",
+    "console_lint_tests_web_desktop":"pass (12 tests)",
+    "protocol_contract":"pass",
+    "bindings_smoke":"pass (.NET, Node, Python, C++)",
+    "licctl_four_stack_generation":"pass",
+    "browser_qa":"pass",
+    "live_postgresql_restore_and_activation_race":"not_run_no_local_docker_daemon"
+  },
+  "authenticode":"not_signed_no_certificate_supplied"
+}

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LicenseHub endpoint-specific client request",
+  "oneOf": [
+    { "$ref": "#/$defs/activateRequest" },
+    { "$ref": "#/$defs/leaseRequest" }
+  ],
+  "$defs": {
+    "activateRequest": {
+      "title": "Activate request",
+      "type": "object",
+      "required": ["license_key", "product_id", "device_id"],
+      "properties": {
+        "license_key": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "product_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "device_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "label": { "type": "string", "maxLength": 128 }
+      },
+      "additionalProperties": false
+    },
+    "leaseRequest": {
+      "title": "Refresh/deactivate request",
+      "type": "object",
+      "required": ["product_id", "device_id", "lease"],
+      "properties": {
+        "product_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "device_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "lease": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

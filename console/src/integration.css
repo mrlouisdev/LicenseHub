@@ -1,0 +1,23 @@
+.key-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.key-actions select {
+  height: 36px;
+  max-width: 170px;
+  border: 1px solid #2a394e;
+  border-radius: 8px;
+  background: #0c121b;
+  color: #dce3ed;
+  padding: 0 9px;
+  font-size: 9px;
+}
+
+@media (max-width: 760px) {
+  .key-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

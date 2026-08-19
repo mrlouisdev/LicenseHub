@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.20)
+project(LicenseHubCppDemo LANGUAGES CXX)
+add_subdirectory("../../bindings/cpp" "${CMAKE_CURRENT_BINARY_DIR}/licensehub")
+add_executable(licensehub_cpp_demo main.cpp)
+target_link_libraries(licensehub_cpp_demo PRIVATE licensehub_cpp)
+licensehub_copy_runtime(licensehub_cpp_demo)

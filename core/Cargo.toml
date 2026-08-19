@@ -1,0 +1,4 @@
+[workspace]
+members = ["license-core"]
+resolver = "2"
+

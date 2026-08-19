@@ -1,0 +1,1 @@
+ALTER TABLE plans ALTER COLUMN max_activations SET DEFAULT 3;

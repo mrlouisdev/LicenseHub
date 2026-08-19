@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PackageId>LicenseHub.Licensing</PackageId>
+    <Version>0.1.0</Version>
+    <Description>Safe .NET binding for the LicenseHub native core ABI.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="../../../../core/target/release/license_core.dll"
+          Condition="Exists('../../../../core/target/release/license_core.dll')"
+          Link="runtimes/win-x64/native/license_core.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Pack="true" PackagePath="runtimes/win-x64/native/" />
+  </ItemGroup>
+</Project>
