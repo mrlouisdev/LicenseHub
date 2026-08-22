@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use crate::{
     clock::Clock,
     error::{LicenseError, Result},
-    lease::{verify_token, LeaseClaims, VerifiedLease},
+    lease::{valid_key_id, verify_token, LeaseClaims, VerifiedLease},
     store::SecureStore,
     transport::{ActivateRequest, DeactivateRequest, LicenseTransport, RefreshRequest},
 };
@@ -46,14 +46,19 @@ impl ClientConfig {
                 "at least one public key is required".into(),
             ));
         }
-        if self.clock_rollback_tolerance_seconds < 0 {
+        if !(0..=3600).contains(&self.clock_rollback_tolerance_seconds) {
             return Err(LicenseError::Configuration(
-                "clock tolerance cannot be negative".into(),
+                "clock rollback tolerance must be between 0 and 3600 seconds".into(),
             ));
         }
         self.public_keys
             .iter()
             .map(|(kid, encoded)| {
+                if !valid_key_id(kid) {
+                    return Err(LicenseError::Configuration(format!(
+                        "public key id '{kid}' is invalid"
+                    )));
+                }
                 let bytes = STANDARD.decode(encoded).map_err(|e| {
                     LicenseError::Configuration(format!("public key '{kid}' is not base64: {e}"))
                 })?;

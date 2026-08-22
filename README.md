@@ -25,7 +25,14 @@ Demo mode. Production mode is selected at runtime, never baked into the build.
 
 ## Start the VPS stack
 
-Copy the environment template and replace every `CHANGE_ME` value:
+On a Linux VPS, use the checked deployment scripts in this order:
+
+1. `new-env.sh` once for a new installation.
+2. `bootstrap.sh` to create the owner before Caddy is exposed.
+3. `verify.sh` for the public edge gate.
+
+For local Compose development, copy the environment template and replace every
+`CHANGE_ME` value:
 
 ```powershell
 Copy-Item deploy/.env.example deploy/.env
@@ -37,6 +44,18 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml ps
 Production exposes only Caddy on ports 80/443. PostgreSQL and the server stay on
 private Compose networks. Applications use the stable domain in `LICENSE_DOMAIN`;
 never embed a VPS IP address in a client.
+
+For a VPS whose existing reverse proxy already owns 80/443, use
+`deploy/docker-compose.integrated.yml`, set `EXTERNAL_EDGE_NETWORK`, and route
+the domain to `licensehub-server:9000`. This preserves unrelated sites and keeps
+PostgreSQL private; see `docs/operations.md` for cutover and rollback.
+
+Production startup fails closed unless the signing seed, JWT secret and
+`RELEASE_KEY_ENCRYPTION_KEY` are valid. `/metrics` is blocked at the public
+edge and requires a separate 32+ character Bearer `METRICS_TOKEN` on the
+internal server route. The Compose stack also uses read-only application
+filesystems, dropped Linux capabilities, process/memory/CPU limits and bounded
+JSON logs.
 
 ## Client contract
 
@@ -55,6 +74,9 @@ encoded segment exactly. Read `protocol/openapi.yaml` and
 Activation sends `{product_id, license_key, device_id, label?}`. Refresh and
 deactivation send `{product_id, device_id, lease}` so the raw license key is not
 retained after activation. The public-key endpoint returns `{keys: {kid: base64}}`.
+Client request bodies, HTTP responses and signed leases are size-bounded before
+JSON parsing. SDKs reject malformed key IDs, unexpected signing identities,
+oversized claims and unsafe timeout/clock-skew configuration.
 
 ## Integrate another app
 
@@ -62,6 +84,12 @@ retained after activation. The public-key endpoint returns `{keys: {kid: base64}
 .NET, Electron/Node, Python or C++. Run `licctl --help` for the command shape.
 For signer rotation, first ship an app update whose manifest pins both current
 and next key IDs. Cut the VPS over only after adoption; see `docs/operations.md`.
+
+Each protected app follows the same lifecycle: activate once, persist the
+device-bound signed lease, refresh while online, check the named entitlement at
+the feature boundary, and deactivate on an intentional device transfer.
+Revocation takes effect at the next refresh or lease expiry; shorten
+`LICENSE_LEASE_TTL` where faster revocation matters more than offline uptime.
 
 ## Backup and migration
 
@@ -84,3 +112,8 @@ server build context. Runtime configuration stays excluded and must be
 provisioned independently on the destination VPS. Read `docs/operations.md`,
 `docs/vps-migration.md`, `docs/release-verification.md` and
 `release-manifest.json` before deployment or cutover.
+
+Use `-SkipBackup` to build a source-only bundle when the authoritative database
+lives on the VPS. Linux operations use `deploy/backup.sh`, `deploy/deploy.sh`
+and `deploy/restore.sh`; the existing PowerShell scripts remain available for a
+Windows administration host.

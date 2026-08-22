@@ -46,6 +46,9 @@ type Config struct {
 	SMTPFrom     string
 
 	RedisURL string
+	// MetricsToken protects Prometheus metrics in production. When empty,
+	// /metrics is disabled outside development/staging instead of being public.
+	MetricsToken string
 
 	RateLimitAPI   int
 	RateLimitAdmin int
@@ -119,6 +122,7 @@ func Load() (*Config, error) {
 	cfg.StripeLivemode = deriveLivemode(envVal, envSet, cfg.StripeSecretKey)
 
 	cfg.RedisURL = os.Getenv("REDIS_URL")
+	cfg.MetricsToken = os.Getenv("METRICS_TOKEN")
 
 	cfg.SMTPHost = os.Getenv("SMTP_HOST")
 	cfg.SMTPPort = envOr("SMTP_PORT", "587")
@@ -290,6 +294,9 @@ func (c *Config) ValidateSecurityDefaults() (warnings []string, fatal []string) 
 	if c.IsDevLoginAllowed() {
 		warnings = append(warnings, "SECURITY: dev-login is enabled (ENVIRONMENT=development) — do NOT use in production")
 	}
+	if c.MetricsToken != "" && len(c.MetricsToken) < 32 {
+		fatal = append(fatal, "METRICS_TOKEN must be at least 32 characters when configured")
+	}
 
 	// Storage: validate that partial config doesn't silently disable releases.
 	// If any storage field is set, all required fields must be set.
@@ -312,6 +319,8 @@ func (c *Config) ValidateSecurityDefaults() (warnings []string, fatal []string) 
 	switch {
 	case c.IsStorageEnabled() && c.ReleaseKeyEncryptionKey == "":
 		fatal = append(fatal, "RELEASE_KEY_ENCRYPTION_KEY is required when storage is enabled — generate via: openssl rand -hex 32")
+	case c.IsProduction() && c.ReleaseKeyEncryptionKey == "":
+		fatal = append(fatal, "RELEASE_KEY_ENCRYPTION_KEY is required in production so license keys are encrypted at rest")
 	case c.ReleaseKeyEncryptionKey == "":
 		// Not provided and not required — license encryption stays disabled,
 		// release signing isn't applicable. Surfaced as a warning since this

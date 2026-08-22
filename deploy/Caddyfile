@@ -5,11 +5,20 @@
 
 {$LICENSE_DOMAIN} {
 	encode zstd gzip
+	request_body {
+		max_size 2MB
+	}
+
+	@metrics path /metrics
+	respond @metrics 404
+
 	reverse_proxy server:9000
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
 		-Server
 	}
 	log {
@@ -17,4 +26,3 @@
 		format json
 	}
 }
-

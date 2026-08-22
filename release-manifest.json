@@ -1,27 +1,30 @@
 {
   "format_version": 1,
   "release": "0.1.0",
-  "created_at_utc": "2026-08-19T09:10:00Z",
+  "created_at_utc": "2026-08-21T22:20:51Z",
   "platform": "windows-x64",
   "artifacts": [
-    {"name":"licensehub-server","path":"server/bin/licensehub-server-final.exe","bytes":50776576,"sha256":"5ef65e175177fd6595841d082cccf91db02e859e10c6484d2b8a46ef193c32cc"},
-    {"name":"license-core","path":"core/target/release/license_core.dll","bytes":3762688,"sha256":"6ace2063df5961127bbf5f82b663aec732ba8c8d98338b5d7313ea1ad3b8868e"},
-    {"name":"licensehub-console-portable","path":"console/src-tauri/target/release/licensehub-console.exe","bytes":12845056,"sha256":"d5eb40a6d95eb04de10e915343d6460eb34caab23a807cabd9da9e7fe722ac36"},
-    {"name":"licensehub-console-installer","path":"console/src-tauri/target/release/bundle/nsis/LicenseHub Console_0.1.0_x64-setup.exe","bytes":3424161,"sha256":"f9a85afeb7e3aa0c05080198939feb097b4b312be539f53eb18b69b67812d585"},
-    {"name":"dotnet-binding","path":"bindings/dotnet/dist/LicenseHub.Licensing.0.1.0.nupkg","bytes":1660840,"sha256":"c37873652dc548cd1101dcf9ab45055a727201f4096b0cd1e0e29c4babf4a385"},
-    {"name":"node-electron-binding","path":"bindings/node/dist/licensehub-licensing-0.1.0.tgz","bytes":1699512,"sha256":"465a01246fbec828a2396f55ef393ab6dacda7e97ef196ad3996505a4c374cb8"},
-    {"name":"python-binding","path":"bindings/python/dist/licensehub_licensing-0.1.0-py3-none-win_amd64.whl","bytes":1653495,"sha256":"59ad3553ff7739365129043bc42ef81520ea4be7dc3f19b7d231cf47200601d4"},
-    {"name":"licctl","path":"cli/licctl/dist/win-x64/licctl.exe","bytes":67507222,"sha256":"9dd56c0c2d2322cbb0604d77ae6cdc5578992d193d73622ba3214a131e96e186"}
+    {"name":"licensehub-server","path":"server/bin/licensehub-server-final.exe","bytes":36344832,"sha256":"917381ad5c1620f12ed238eded0a6930dbde6cef22f74d2d0d32e4426bb05499"},
+    {"name":"license-core","path":"core/target/release/license_core.dll","bytes":3731968,"sha256":"ab48c0840fc3203bf179d67a0486e4c8c4b00b11686ee153f47a1e3b1f6a9afe"},
+    {"name":"licensehub-console-portable","path":"console/src-tauri/target/release/licensehub-console.exe","bytes":12845056,"sha256":"5ef0178c38bbbb69dd6baddf45b7c7cfd43a7d901b3e5b58ef693ae650413c9f"},
+    {"name":"licensehub-console-installer","path":"console/src-tauri/target/release/bundle/nsis/LicenseHub Console_0.1.0_x64-setup.exe","bytes":3425761,"sha256":"55837cbd5b7bc6dea24227fc45359cf51ddc2a41eff73621791b6475ba717707"},
+    {"name":"dotnet-binding","path":"bindings/dotnet/dist/LicenseHub.Licensing.0.1.0.nupkg","bytes":1648880,"sha256":"c2c9eba875a994c4d9dd3bfec217900ed052654d0d2f409e2adfd73358d74191"},
+    {"name":"node-electron-binding","path":"bindings/node/dist/licensehub-licensing-0.1.0.tgz","bytes":1686759,"sha256":"f8b35e9e569cbe4fab57da8416ab1f31161db5125ac7ac4d21cb863a7c8bda8b"},
+    {"name":"python-binding","path":"bindings/python/dist/licensehub_licensing-0.1.0-py3-none-win_amd64.whl","bytes":1641245,"sha256":"727149c3cb38cb3eb05e85e8df07402f5d05ae9b7326cb1b7e752dd1972e82a7"},
+    {"name":"licctl","path":"cli/licctl/dist/win-x64/licctl.exe","bytes":67507222,"sha256":"0ebad2a758d452d20186ed0440214a7d640687926fb5005ea9cd695e20388af7"}
   ],
   "verification": {
     "go_unit_vet_build":"pass",
-    "rust_fmt_clippy_tests_release":"pass (10 tests)",
+    "rust_fmt_clippy_tests_release":"pass (13 tests)",
     "console_lint_tests_web_desktop":"pass (12 tests)",
     "protocol_contract":"pass",
     "bindings_smoke":"pass (.NET, Node, Python, C++)",
-    "licctl_four_stack_generation":"pass",
+    "licctl_four_stack_generation":"pass (self-contained win-x64)",
+    "docker_compose_and_edge_hardening":"pass (standalone and external-edge topology; live VPS)",
     "browser_qa":"pass",
-    "live_postgresql_restore_and_activation_race":"not_run_no_local_docker_daemon"
+    "live_postgresql_restore_and_activation_race":"pass (machine A allowed, machine B denied, transactional restore verified)",
+    "production_https_acceptance":"pass (license.zmmo.shop; health, headers, metrics 404, key ring, strict JSON)",
+    "production_lifecycle":"pass (refresh, entitlements, quota, restart persistence, revoke, audit)"
   },
   "authenticode":"not_signed_no_certificate_supplied"
 }

@@ -116,6 +116,43 @@ fn harness(
 }
 
 #[test]
+fn rejects_oversized_or_malformed_security_config() {
+    let signing = SigningKey::from_bytes(&[7u8; 32]);
+    let transport = Arc::new(MockTransport::default());
+    let store = Arc::new(MemoryStore::default());
+    let clock = Arc::new(MockClock(Mutex::new(1_000)));
+
+    let mut bad_tolerance = config(&signing);
+    bad_tolerance.clock_rollback_tolerance_seconds = 86_400;
+    assert!(LicenseClient::initialize(
+        bad_tolerance,
+        transport.clone(),
+        store.clone(),
+        clock.clone(),
+    )
+    .is_err());
+
+    let mut bad_key_id = config(&signing);
+    bad_key_id.public_keys = HashMap::from([(
+        "bad key id".into(),
+        STANDARD.encode(signing.verifying_key().to_bytes()),
+    )]);
+    assert!(LicenseClient::initialize(bad_key_id, transport, store, clock).is_err());
+}
+
+#[test]
+fn rejects_oversized_signed_lease_before_parsing() {
+    use crate::lease::{verify_token, MAX_SIGNED_LEASE_BYTES};
+    let signing = SigningKey::from_bytes(&[7u8; 32]);
+    let keys = HashMap::from([("primary".into(), signing.verifying_key())]);
+    let oversized = "x".repeat(MAX_SIGNED_LEASE_BYTES + 1);
+    assert!(matches!(
+        verify_token(&oversized, &keys),
+        Err(LicenseError::InvalidLease(_))
+    ));
+}
+
+#[test]
 fn activate_verifies_signature_binding_and_entitlement() {
     let (mut client, transport, _, signing) = harness(1_000);
     let signed = token(&signing, "primary", "app_a", client.device_id(), 900, 1_100);

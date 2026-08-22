@@ -2,6 +2,7 @@
 param(
     [Parameter(Mandatory)] [string]$Destination,
     [string]$ComposeFile = (Join-Path $PSScriptRoot '..\deploy\docker-compose.yml'),
+    [switch]$SkipBackup,
     [switch]$DryRun
 )
 
@@ -22,22 +23,45 @@ if (Test-Path -LiteralPath $destinationPath) {
 $plan = [ordered]@{
     operation = 'stage-vps-migration'
     destination = $destinationPath
-    contents = @('database backup', 'Compose/Caddy config', 'server build context', 'migration runbook', 'SHA-256 manifest')
+    contents = @(
+        if (-not $SkipBackup) { 'database backup' }
+        'Compose/Caddy config and Linux operations scripts'
+        'server build context'
+        'operations and migration runbooks'
+        'SHA-256 manifest'
+    )
     server_configuration = 'secrets must be provisioned independently on the destination host'
 }
 if ($DryRun) { $plan | ConvertTo-Json; return }
 
 if ($PSCmdlet.ShouldProcess($destinationPath, 'Create VPS migration staging directory')) {
     New-Item -ItemType Directory -Path $destinationPath -Force | Out-Null
-    $backupRoot = Join-Path $destinationPath 'backup'
-    & (Join-Path $PSScriptRoot 'Backup-LicenseHub.ps1') -ComposeFile $ComposeFile -OutputRoot $backupRoot | Out-Host
+    if (-not $SkipBackup) {
+        $backupRoot = Join-Path $destinationPath 'backup'
+        & (Join-Path $PSScriptRoot 'Backup-LicenseHub.ps1') -ComposeFile $ComposeFile -OutputRoot $backupRoot | Out-Host
+    }
 
     $deployTarget = Join-Path $destinationPath 'deploy'
     New-Item -ItemType Directory -Path $deployTarget -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $workspace 'deploy\docker-compose.yml') -Destination $deployTarget
-    Copy-Item -LiteralPath (Join-Path $workspace 'deploy\Caddyfile') -Destination $deployTarget
-    Copy-Item -LiteralPath (Join-Path $workspace 'deploy\.env.example') -Destination $deployTarget
-    Copy-Item -LiteralPath (Join-Path $workspace 'docs\vps-migration.md') -Destination $destinationPath
+    foreach ($name in @(
+        'docker-compose.yml', 'docker-compose.integrated.yml', 'Caddyfile', '.env.example',
+        'lib.sh', 'new-env.sh', 'bootstrap.sh', 'deploy.sh',
+        'backup.sh', 'restore.sh', 'verify.sh'
+    )) {
+        $source = Join-Path $workspace "deploy\$name"
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            throw "Required deployment file not found: $source"
+        }
+        Copy-Item -LiteralPath $source -Destination $deployTarget
+    }
+    foreach ($name in @('vps-migration.md', 'operations.md', 'release-verification.md', 'threat-model.md')) {
+        $source = Join-Path $workspace "docs\$name"
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            throw "Required operations file not found: $source"
+        }
+        Copy-Item -LiteralPath $source -Destination $destinationPath
+    }
+    Copy-Item -LiteralPath (Join-Path $workspace 'release-manifest.json') -Destination $destinationPath
 
     # Compose builds ../server relative to deploy/docker-compose.yml. Stage the
     # exact source inputs needed by server/Dockerfile so this bundle can build

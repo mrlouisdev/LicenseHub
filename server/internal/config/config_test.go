@@ -134,6 +134,39 @@ func TestValidateSecurityDefaults(t *testing.T) {
 			t.Error("expected admin emails warning in production")
 		}
 	})
+
+	t.Run("production requires license encryption", func(t *testing.T) {
+		c := &Config{
+			Environment:       "production",
+			JWTSecret:         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			LicenseSigningKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		}
+		_, fatal := c.ValidateSecurityDefaults()
+		found := false
+		for _, message := range fatal {
+			if message == "RELEASE_KEY_ENCRYPTION_KEY is required in production so license keys are encrypted at rest" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("expected production encryption failure, got %v", fatal)
+		}
+	})
+
+	t.Run("metrics token must be strong", func(t *testing.T) {
+		c := &Config{
+			Environment:         "development",
+			JWTSecret:           "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			LicenseSigningKey:   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			MetricsToken:        "too-short",
+			LicenseLeaseTTL:     "72h",
+			LicenseSigningKeyID: "v1",
+		}
+		_, fatal := c.ValidateSecurityDefaults()
+		if len(fatal) == 0 {
+			t.Fatal("expected short metrics token to fail")
+		}
+	})
 }
 
 // TestStripeLivemodeDerivation pins the rules described in

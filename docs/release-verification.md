@@ -3,7 +3,7 @@
 ## Passed locally
 
 - Go server: unit tests, vet and final Windows build.
-- Rust core: format, clippy with warnings denied, 10 tests and release DLL.
+- Rust core: format, clippy with warnings denied, 13 tests and release DLL.
 - Console: ESLint, 12 Vitest tests, web build and Tauri/NSIS build.
 - Browser QA: first-run connection screen, explicit Demo mode, navigation,
   remote plain-HTTP rejection and zero browser warnings/errors.
@@ -11,17 +11,34 @@
 - .NET, Node/Electron, Python and C++ ABI/status/error smoke tests.
 - `licctl` generated kits for all four supported stacks.
 - Node/Python packages contain the final native DLL hash.
+- Production configuration fails closed without release-key encryption.
+- Client contracts reject oversized/ambiguous JSON, HTTP responses and leases.
+- Metrics are token-protected in the server and blocked at the public Caddy edge.
+- Compose configuration validates with read-only app filesystems, dropped
+  capabilities, resource limits and rotated JSON logs.
+- Linux VPS scripts cover secret generation, non-public bootstrap, pre-deploy
+  backup, transactional restore and public edge verification.
 
-## Target-VPS acceptance still required
+## Target-VPS acceptance passed
 
-This workstation had no running Docker daemon or PostgreSQL instance. Before
-cutover, execute on a staging VPS:
+Production acceptance passed on `license.zmmo.shop` against the checked
+source-only bundle deployed through an existing Caddy edge:
 
-1. Start Compose and apply migrations.
-2. Login by OTP and create one Product/Plan/License.
-3. Activate machine A, confirm machine B is rejected, refresh, revoke and reset.
-4. Back up, restore on an isolated stack and exercise rollback.
-5. Build the migration bundle and boot it on a clean VPS.
+- Private build, migration and health checks passed with PostgreSQL unexposed.
+- Public health, key-ring, strict JSON, security-header and `/metrics`-404 gates
+  passed over HTTPS.
+- Machine A activated; machine B was rejected by the one-device limit.
+- Lease refresh, entitlement allow/deny and quota enforcement passed.
+- Refresh survived a server restart; revocation denied the next refresh.
+- Created/activated/revoked audit evidence was present.
+- A checksummed dump was restored transactionally after a database mutation;
+  the original value and revoked license state were recovered.
+- The existing `license.hubflow.store` API and unrelated Compose services stayed
+  healthy across the domain-only cutover.
+
+The VPS retains a mode-0600 machine-readable acceptance record and two rollback
+layers: the pre-cutover HubFlow dump/config snapshot and LicenseHub's verified
+backup plus pre-restore safety dump.
 
 ## Release gates
 

@@ -68,7 +68,7 @@ func main() {
 
 	// Optional Redis-backed rate limiting
 	if cfg.RedisURL != "" {
-		logger.Info("Redis rate limiting enabled", "url", cfg.RedisURL)
+		logger.Warn("REDIS_URL is configured but this build still uses the in-memory rate limiter")
 		// To enable: import github.com/redis/go-redis/v9 and uncomment:
 		// rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisURL})
 		// middleware.SetRateLimitBackend(middleware.NewRedisBackend(rdb))
@@ -383,7 +383,7 @@ func main() {
 		c.Next()
 	})
 
-	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	r.GET("/metrics", middleware.MetricsAuth(cfg.MetricsToken, !cfg.IsProduction()), gin.WrapH(promhttp.Handler()))
 
 	r.GET("/health", func(c *gin.Context) {
 		status := "ok"
@@ -392,7 +392,7 @@ func main() {
 		// DB check
 		if err := db.DB.PingContext(c.Request.Context()); err != nil {
 			status = "degraded"
-			checks["database"] = "error: " + err.Error()
+			checks["database"] = "error"
 		} else {
 			checks["database"] = "ok"
 		}
@@ -495,6 +495,7 @@ func main() {
 	// (a customer's backend querying license state).
 	licRateLimit := max(cfg.RateLimitAPI*2, 120)
 	lic := v1.Group("/license",
+		middleware.NoStore(),
 		middleware.LicenseBruteForceGuard(bf),
 		middleware.RateLimitByIP(licRateLimit, time.Minute))
 	{
@@ -528,6 +529,7 @@ func main() {
 	// LicenseHub universal SDK aliases. These deliberately live alongside,
 	// rather than replace, the upstream /api/v1/license routes.
 	client := r.Group("/v1/client",
+		middleware.NoStore(),
 		middleware.LicenseBruteForceGuard(bf),
 		middleware.RateLimitByIP(licRateLimit, time.Minute))
 	{
@@ -986,8 +988,13 @@ func main() {
 	serveFrontend(r)
 
 	srv := &http.Server{
-		Addr:    ":" + cfg.Port,
-		Handler: r,
+		Addr:              ":" + cfg.Port,
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	go func() {

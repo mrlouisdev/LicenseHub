@@ -120,6 +120,11 @@ pub unsafe extern "C" fn license_initialize(
         let json = unsafe { required_str(config_json, "config_json") }?;
         let config: FfiConfig = serde_json::from_str(json)
             .map_err(|e| LicenseError::Configuration(format!("config JSON: {e}")))?;
+        if !(1..=120).contains(&config.request_timeout_seconds) {
+            return Err(LicenseError::Configuration(
+                "request_timeout_seconds must be between 1 and 120".into(),
+            ));
+        }
         let transport = Arc::new(HttpTransport::new(
             &config.server_url,
             Duration::from_secs(config.request_timeout_seconds),

@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -11,7 +14,14 @@ import (
 	"github.com/tabloy/keygate/pkg/response"
 )
 
-const maxIdentifierLen = 256
+const (
+	maxIdentifierLen     = 256
+	maxClientRequestBody = 64 * 1024
+	maxClientLicenseKey  = 512
+	maxClientProductID   = 128
+	maxClientLabel       = 128
+	maxClientLease       = 48 * 1024
+)
 
 type LicenseHandler struct {
 	svc *service.LicenseService
@@ -171,14 +181,16 @@ type clientLeaseRequest struct {
 
 func bindClientLeaseRequest(c *gin.Context) (clientLeaseRequest, bool) {
 	var req clientLeaseRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "product_id, device_id and lease are required")
+	if !bindStrictClientJSON(c, &req) {
 		return req, false
 	}
 	req.ProductID = strings.TrimSpace(req.ProductID)
 	req.DeviceID = strings.TrimSpace(req.DeviceID)
-	if req.ProductID == "" || req.DeviceID == "" || len(req.DeviceID) > maxIdentifierLen {
-		response.BadRequest(c, "invalid product_id or device_id")
+	req.Lease = strings.TrimSpace(req.Lease)
+	if req.ProductID == "" || len(req.ProductID) > maxClientProductID ||
+		req.DeviceID == "" || len(req.DeviceID) > maxIdentifierLen ||
+		req.Lease == "" || len(req.Lease) > maxClientLease {
+		response.BadRequest(c, "product_id, device_id and lease are required")
 		return req, false
 	}
 	return req, true
@@ -193,17 +205,41 @@ type clientLicenseRequest struct {
 
 func bindClientLicenseRequest(c *gin.Context) (clientLicenseRequest, bool) {
 	var req clientLicenseRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if !bindStrictClientJSON(c, &req) {
+		return req, false
+	}
+	req.LicenseKey = strings.TrimSpace(req.LicenseKey)
+	req.ProductID = strings.TrimSpace(req.ProductID)
+	req.DeviceID = strings.TrimSpace(req.DeviceID)
+	req.Label = strings.TrimSpace(req.Label)
+	if req.LicenseKey == "" || len(req.LicenseKey) > maxClientLicenseKey ||
+		req.ProductID == "" || len(req.ProductID) > maxClientProductID ||
+		req.DeviceID == "" || len(req.DeviceID) > maxIdentifierLen ||
+		len(req.Label) > maxClientLabel {
 		response.BadRequest(c, "license_key, product_id and device_id are required")
 		return req, false
 	}
-	req.ProductID = strings.TrimSpace(req.ProductID)
-	req.DeviceID = strings.TrimSpace(req.DeviceID)
-	if req.ProductID == "" || req.DeviceID == "" || len(req.DeviceID) > maxIdentifierLen {
-		response.BadRequest(c, "invalid product_id or device_id")
-		return req, false
-	}
 	return req, true
+}
+
+func bindStrictClientJSON(c *gin.Context, destination any) bool {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxClientRequestBody)
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(destination); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			response.Err(c, http.StatusRequestEntityTooLarge, "BODY_TOO_LARGE", "request body exceeds 64 KiB")
+		} else {
+			response.BadRequest(c, "invalid client request")
+		}
+		return false
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		response.BadRequest(c, "request body must contain exactly one JSON object")
+		return false
+	}
+	return true
 }
 
 // writeAppErr translates an AppError into a consistent API response.

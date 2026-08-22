@@ -1,5 +1,8 @@
 name: licensehub
 
+# Use when an existing reverse proxy already owns ports 80/443. The proxy must
+# join EXTERNAL_EDGE_NETWORK and route the license domain to
+# licensehub-server:9000. LicenseHub keeps PostgreSQL on the private data net.
 services:
   server:
     build:
@@ -11,7 +14,7 @@ services:
       ENVIRONMENT: production
       BASE_URL: https://${LICENSE_DOMAIN}
       LICENSE_LEASE_TTL: ${LICENSE_LEASE_TTL:-72h}
-    env_file: .env
+    env_file: ${LICENSEHUB_ENV_FILE:-.env}
     depends_on:
       postgres:
         condition: service_healthy
@@ -37,11 +40,14 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
-    networks: [edge, data]
+    networks:
+      data: {}
+      external-edge:
+        aliases: [licensehub-server]
 
   postgres:
     image: postgres:18-alpine
-    env_file: .env
+    env_file: ${LICENSEHUB_ENV_FILE:-.env}
     volumes:
       - postgres-data:/var/lib/postgresql
     restart: unless-stopped
@@ -62,44 +68,12 @@ services:
         max-file: "5"
     networks: [data]
 
-  caddy:
-    image: caddy:2.10-alpine
-    env_file: .env
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on:
-      server:
-        condition: service_healthy
-    restart: unless-stopped
-    init: true
-    read_only: true
-    tmpfs:
-      - /tmp:size=64m,mode=1777
-    pids_limit: 100
-    mem_limit: 256m
-    cpus: 0.5
-    security_opt: ["no-new-privileges:true"]
-    cap_drop: ["ALL"]
-    cap_add: ["NET_BIND_SERVICE"]
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
-    networks: [edge]
-
 volumes:
   postgres-data:
-  caddy-data:
-  caddy-config:
 
 networks:
-  edge:
   data:
     internal: true
+  external-edge:
+    external: true
+    name: ${EXTERNAL_EDGE_NETWORK:?set EXTERNAL_EDGE_NETWORK}
