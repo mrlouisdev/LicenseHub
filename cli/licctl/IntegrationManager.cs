@@ -185,7 +185,9 @@ internal static class IntegrationManager
         var nodeSource = Path.Combine(source, "bindings", "node");
         var nodeTarget = Path.Combine(kitRoot, "bindings", "node");
         CopyTree(Path.Combine(nodeSource, "src"), Path.Combine(nodeTarget, "src"), []);
-        CopyTree(Path.Combine(nodeSource, "native"), Path.Combine(nodeTarget, "native"), []);
+        var nodeNative = Path.Combine(nodeTarget, "native", "win-x64");
+        Directory.CreateDirectory(nodeNative);
+        CopyNativeRuntime(LocateNative(source), Path.Combine(nodeNative, "license_core.dll"));
         CopyTree(Path.Combine(nodeSource, "node_modules", "koffi"), Path.Combine(nodeTarget, "node_modules", "koffi"), []);
         Directory.CreateDirectory(nodeTarget);
         File.Copy(Path.Combine(nodeSource, "package.json"), Path.Combine(nodeTarget, "package.json"));
@@ -197,8 +199,8 @@ internal static class IntegrationManager
         var runtime = Path.Combine(kitRoot, "core", "target", "release");
         Directory.CreateDirectory(runtime);
         File.Copy(LocateNative(source), Path.Combine(runtime, "license_core.dll"));
-        if (LocateImportLibrary(source) is { } importLibrary)
-            File.Copy(importLibrary, Path.Combine(runtime, "license_core.dll.lib"));
+        var importLibrary = LocateImportLibrary(source) ?? throw new FileNotFoundException("license_core import library is absent from the payload");
+        File.Copy(importLibrary, Path.Combine(runtime, "license_core.dll.lib"));
     }
     private static IEnumerable<string> Ancestors(string raw)
     {
@@ -233,6 +235,9 @@ internal static class IntegrationManager
     {
         var vendor = Path.Combine(project, ".licensehub", "vendor", "node");
         CopyTree(Path.Combine(source, "bindings", "node"), vendor, ["test", "dist"]);
+        var native = Path.Combine(vendor, "native", "win-x64");
+        Directory.CreateDirectory(native);
+        CopyNativeRuntime(LocateNative(source), Path.Combine(native, "license_core.dll"));
         var packagePath = Path.Combine(project, "package.json");
         var package = JsonNode.Parse(File.ReadAllText(packagePath))?.AsObject() ?? throw new InvalidDataException("package.json must contain an object");
         var dependencies = package["dependencies"] as JsonObject ?? new JsonObject();
@@ -268,8 +273,8 @@ internal static class IntegrationManager
         File.Copy(Path.Combine(source, "core", "include", "license_core.h"), Path.Combine(vendor, "include", "license_core.h"));
         Directory.CreateDirectory(Path.Combine(vendor, "runtime", "win-x64"));
         File.Copy(LocateNative(source), Path.Combine(vendor, "runtime", "win-x64", "license_core.dll"));
-        var importLibrary = LocateImportLibrary(source);
-        if (importLibrary is not null) File.Copy(importLibrary, Path.Combine(vendor, "runtime", "win-x64", "license_core.dll.lib"));
+        var importLibrary = LocateImportLibrary(source) ?? throw new FileNotFoundException("license_core import library is absent from the payload");
+        File.Copy(importLibrary, Path.Combine(vendor, "runtime", "win-x64", "license_core.dll.lib"));
         Runner.AtomicWrite(Path.Combine(vendor, "CMakeLists.txt"), CppCMake);
         tracker.WriteCreated("licensehub_integration.hpp", CppAdapter(profile));
 
@@ -330,7 +335,8 @@ internal static class IntegrationManager
         var error = process.StandardError.ReadToEndAsync();
         if (!process.WaitForExit(120_000)) { process.Kill(true); return new(name, false, $"{command} timed out"); }
         Task.WaitAll(output, error);
-        var detail = string.Join(" ", (output.Result + Environment.NewLine + error.Result).Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).TakeLast(2)).Trim();
+        var lines = (output.Result + Environment.NewLine + error.Result).Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        var detail = string.Join(" ", lines.TakeLast(process.ExitCode == 0 ? 2 : 12)).Trim();
         return new(name, process.ExitCode == 0, detail.Length == 0 ? $"exit={process.ExitCode}" : detail);
     }
     private static string PythonCommand() => FindExecutable("python") ?? FindExecutable("python3") ?? throw new FileNotFoundException("python was not found");
@@ -348,7 +354,7 @@ internal static class IntegrationManager
 
     private static string LocateNative(string source)
     {
-        foreach (var candidate in new[] { Path.Combine(source, "bindings", "node", "native", "win-x64", "license_core.dll"), Path.Combine(source, "core", "target", "release", "license_core.dll") })
+        foreach (var candidate in new[] { Path.Combine(source, "core", "target", "release", "license_core.dll"), Path.Combine(source, "bindings", "node", "native", "win-x64", "license_core.dll") })
             if (File.Exists(candidate)) return candidate;
         throw new FileNotFoundException("license_core.dll is absent from the payload");
     }
@@ -538,7 +544,7 @@ target_include_directories(licensehub_licensing INTERFACE "${CMAKE_CURRENT_LIST_
 target_link_libraries(licensehub_licensing INTERFACE licensehub_core)
 function(licensehub_copy_runtime target)
   add_custom_command(TARGET ${target} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${CMAKE_CURRENT_LIST_DIR}/runtime/win-x64/license_core.dll" "$<TARGET_FILE_DIR:${target}>")
+    "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/runtime/win-x64/license_core.dll" "$<TARGET_FILE_DIR:${target}>")
 endfunction()
 """;
 

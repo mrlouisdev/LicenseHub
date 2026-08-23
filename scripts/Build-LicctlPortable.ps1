@@ -17,7 +17,7 @@ if ($Runtime -ne 'win-x64') { throw 'Only win-x64 is currently supported by the 
 $native = Join-Path $workspace 'core\target\release\license_core.dll'
 $importLibrary = Join-Path $workspace 'core\target\release\license_core.dll.lib'
 $nodeRuntime = Join-Path $workspace 'bindings\node\node_modules\koffi'
-foreach ($required in @($native, $nodeRuntime)) {
+foreach ($required in @($native, $importLibrary, $nodeRuntime)) {
     if (-not (Test-Path -LiteralPath $required)) { throw "Required release payload is missing: $required" }
 }
 
@@ -53,7 +53,6 @@ Copy-SourceTree (Join-Path $workspace 'bindings\dotnet\src\LicenseHub.Licensing'
 Copy-SourceTree (Join-Path $workspace 'bindings\python\licensehub_licensing') (Join-Path $stage 'bindings\python\licensehub_licensing') @('__pycache__')
 Copy-SourceTree (Join-Path $workspace 'bindings\cpp\include') (Join-Path $stage 'bindings\cpp\include')
 Copy-SourceTree (Join-Path $workspace 'bindings\node\src') (Join-Path $stage 'bindings\node\src')
-Copy-SourceTree (Join-Path $workspace 'bindings\node\native') (Join-Path $stage 'bindings\node\native')
 Copy-SourceTree $nodeRuntime (Join-Path $stage 'bindings\node\node_modules\koffi')
 Copy-Item -LiteralPath (Join-Path $workspace 'bindings\node\package.json') -Destination (Join-Path $stage 'bindings\node\package.json')
 Copy-Item -LiteralPath (Join-Path $workspace 'bindings\node\package-lock.json') -Destination (Join-Path $stage 'bindings\node\package-lock.json')
@@ -69,9 +68,7 @@ foreach ($adapterNative in @(
     New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($adapterNative)) -Force | Out-Null
     Copy-Item -LiteralPath $native -Destination $adapterNative -Force
 }
-if (Test-Path -LiteralPath $importLibrary) {
-    Copy-Item -LiteralPath $importLibrary -Destination (Join-Path $stage 'core\target\release\license_core.dll.lib')
-}
+Copy-Item -LiteralPath $importLibrary -Destination (Join-Path $stage 'core\target\release\license_core.dll.lib')
 
 $manifestPath = Join-Path $stage 'portable-manifest.json'
 $files = @(Get-ChildItem -LiteralPath $stage -Recurse -File | Where-Object FullName -ne $manifestPath | ForEach-Object {

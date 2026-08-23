@@ -82,6 +82,9 @@ jobs:
       - name: Test core
         working-directory: core
         run: cargo test --locked --workspace
+      - name: Verify crate package
+        working-directory: core
+        run: cargo package --locked --allow-dirty
 
   web:
     name: Admin web

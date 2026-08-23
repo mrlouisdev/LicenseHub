@@ -20,6 +20,8 @@ bindings/cpp/license_core.dll
 bindings/cpp/*.exe
 examples/cpp-demo/license_core.dll
 examples/cpp-demo/*.exe
+bindings/node/native/win-x64/license_core.dll
+bindings/python/licensehub_licensing/_native/win-x64/license_core.dll
 .env
 .env.*
 !.env.example

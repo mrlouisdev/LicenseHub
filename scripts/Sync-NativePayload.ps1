@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$VerifyClean)
+param()
 
 $ErrorActionPreference = 'Stop'
 $workspace = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -16,11 +16,6 @@ foreach ($target in $targets) {
     Copy-Item -LiteralPath $native -Destination $target -Force
     $targetHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($targetHash -ne $hash) { throw "Native payload hash mismatch after copy: $target" }
-}
-
-if ($VerifyClean) {
-    & git -C $workspace diff --exit-code -- @($targets | ForEach-Object { [IO.Path]::GetRelativePath($workspace, $_) })
-    if ($LASTEXITCODE -ne 0) { throw 'Committed native adapter payload differs from the pinned-toolchain build' }
 }
 
 Write-Output "NATIVE_PAYLOAD_SYNCED SHA256 $hash TARGETS $($targets.Count)"

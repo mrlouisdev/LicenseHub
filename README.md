@@ -18,6 +18,10 @@ shared client contract and verify short-lived Ed25519 leases offline.
 - `docs/` — threat model and operations runbooks.
 - `.github/workflows/` — pinned CI, portable-client and history-scan gates.
 
+Native DLLs are generated from the pinned Rust toolchain, never committed. The
+Windows workflow builds once, synchronizes identical bytes into every adapter,
+then tests and packages the portable artifact.
+
 ## Install the management app
 
 ```powershell
