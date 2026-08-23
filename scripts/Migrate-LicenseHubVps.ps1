@@ -2,6 +2,7 @@
 param(
     [Parameter(Mandatory)] [string]$Destination,
     [string]$ComposeFile = (Join-Path $PSScriptRoot '..\deploy\docker-compose.yml'),
+    [string]$EnvironmentFile = (Join-Path $PSScriptRoot '..\deploy\.env'),
     [switch]$SkipBackup,
     [switch]$DryRun
 )
@@ -38,7 +39,7 @@ if ($PSCmdlet.ShouldProcess($destinationPath, 'Create VPS migration staging dire
     New-Item -ItemType Directory -Path $destinationPath -Force | Out-Null
     if (-not $SkipBackup) {
         $backupRoot = Join-Path $destinationPath 'backup'
-        & (Join-Path $PSScriptRoot 'Backup-LicenseHub.ps1') -ComposeFile $ComposeFile -OutputRoot $backupRoot | Out-Host
+        & (Join-Path $PSScriptRoot 'Backup-LicenseHub.ps1') -ComposeFile $ComposeFile -EnvironmentFile $EnvironmentFile -OutputRoot $backupRoot | Out-Host
     }
 
     $deployTarget = Join-Path $destinationPath 'deploy'
@@ -46,7 +47,8 @@ if ($PSCmdlet.ShouldProcess($destinationPath, 'Create VPS migration staging dire
     foreach ($name in @(
         'docker-compose.yml', 'docker-compose.integrated.yml', 'Caddyfile', '.env.example',
         'lib.sh', 'new-env.sh', 'bootstrap.sh', 'deploy.sh',
-        'backup.sh', 'restore.sh', 'verify.sh'
+        'backup.sh', 'restore.sh', 'verify.sh', 'recover-host.sh',
+        'monitor.sh', 'install-operations.sh', 'images.lock'
     )) {
         $source = Join-Path $workspace "deploy\$name"
         if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
@@ -62,6 +64,19 @@ if ($PSCmdlet.ShouldProcess($destinationPath, 'Create VPS migration staging dire
         Copy-Item -LiteralPath $source -Destination $destinationPath
     }
     Copy-Item -LiteralPath (Join-Path $workspace 'release-manifest.json') -Destination $destinationPath
+
+    $sourceCommit = (& git -C $workspace rev-parse HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0) { $sourceCommit = 'unknown' }
+    $dirtyCount = @(& git -C $workspace status --porcelain=v1 --untracked-files=all 2>$null).Count
+    [ordered]@{
+        format_version = 1
+        created_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+        source_commit = ([string]$sourceCommit).Trim()
+        source_worktree_dirty = ($dirtyCount -gt 0)
+        source_change_entries = $dirtyCount
+        backup_included = (-not $SkipBackup)
+        deployment_status = 'staged_not_deployed'
+    } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $destinationPath 'migration-metadata.json') -Encoding utf8NoBOM
 
     # Compose builds ../server relative to deploy/docker-compose.yml. Stage the
     # exact source inputs needed by server/Dockerfile so this bundle can build

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/tabloy/keygate/internal/model"
+	"github.com/uptrace/bun"
 )
 
 // ─── Product ───
@@ -214,6 +215,43 @@ func (s *Store) RotateAPIKey(ctx context.Context, id, rawKey, prefix string) err
 	return err
 }
 
+func (s *Store) RotateAPIKeyWithAudit(ctx context.Context, id, rawKey, prefix, actorID, ip string) error {
+	return s.RunAuditedMutation(ctx, &model.AuditLog{
+		Entity: "api_key", EntityID: id, Action: "rotated",
+		ActorType: "admin", ActorID: actorID, IPAddress: ip,
+		Changes: map[string]any{"secret_replaced": true},
+	}, func(ctx context.Context, tx bun.Tx) error {
+		res, err := tx.NewUpdate().Model((*model.APIKey)(nil)).
+			Set("key_hash = ?", HashAPIKey(rawKey)).Set("prefix = ?", prefix).
+			Set("last_used = NULL").Set("last_used_ip = ''").Where("id = ?", id).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		if n != 1 {
+			return fmt.Errorf("api key not found")
+		}
+		return nil
+	})
+}
+
+func (s *Store) DeleteAPIKeyWithAudit(ctx context.Context, id, actorID, ip string) error {
+	return s.RunAuditedMutation(ctx, &model.AuditLog{
+		Entity: "api_key", EntityID: id, Action: "deleted",
+		ActorType: "admin", ActorID: actorID, IPAddress: ip,
+	}, func(ctx context.Context, tx bun.Tx) error {
+		res, err := tx.NewDelete().Model((*model.APIKey)(nil)).Where("id = ?", id).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		if n != 1 {
+			return fmt.Errorf("api key not found")
+		}
+		return nil
+	})
+}
+
 // GenerateRawAPIKey creates a raw API key string like "kg_live_xxxxxxxx..."
 func GenerateRawAPIKey() string {
 	b := make([]byte, 24)
@@ -248,6 +286,27 @@ func (s *Store) RevokeLicense(ctx context.Context, id string) error {
 	}
 	_, _ = s.DB.NewRaw(`UPDATE subscriptions SET status = ?, updated_at = now() WHERE license_id = ?`, model.StatusRevoked, id).Exec(ctx)
 	return nil
+}
+
+func (s *Store) RevokeLicenseWithAudit(ctx context.Context, id, actorID, ip string) error {
+	return s.RunAuditedMutation(ctx, &model.AuditLog{
+		Entity: "license", EntityID: id, Action: "revoked",
+		ActorType: "admin", ActorID: actorID, IPAddress: ip,
+	}, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewDelete().Model((*model.Activation)(nil)).Where("license_id = ?", id).Exec(ctx); err != nil {
+			return err
+		}
+		res, err := tx.NewUpdate().Model((*model.License)(nil)).Set("status = ?, updated_at = ?", model.StatusRevoked, time.Now()).Where("id = ?", id).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			return fmt.Errorf("license not found")
+		}
+		_, err = tx.NewRaw(`UPDATE subscriptions SET status = ?, updated_at = now() WHERE license_id = ?`, model.StatusRevoked, id).Exec(ctx)
+		return err
+	})
 }
 
 func (s *Store) SuspendLicense(ctx context.Context, id string) error {

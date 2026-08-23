@@ -7,6 +7,11 @@ identity, encryption configuration, product IDs and license records.
 
 1. At least one TTL period earlier, reduce DNS TTL to 300 seconds.
 2. Run `Migrate-LicenseHubVps.ps1` to create a checksummed migration bundle.
+   The bundle includes the pinned image registry, restore/recovery/monitor
+   scripts and a v2 encrypted backup when `-SkipBackup` is not used.
+   Run `Verify-MigrationBundle.ps1 -Bundle <path>` before transfer. It rejects
+   missing, modified, path-escaping or unchecksummed files and reports the exact
+   source commit plus dirty-worktree state captured in `migration-metadata.json`.
    For a clean initial/source-only bundle where no local database exists, use
    `-SkipBackup`; take the authoritative backup on the source VPS instead.
 3. Copy the self-contained bundle (`deploy/`, `server/`, `backup/`) to the new

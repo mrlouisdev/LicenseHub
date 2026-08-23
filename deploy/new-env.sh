@@ -19,6 +19,18 @@ output="${3:-$(cd "$(dirname "$0")" && pwd)/.env}"
   echo "invalid admin email" >&2
   exit 2
 }
+
+required_settings=(SMTP_HOST SMTP_USERNAME SMTP_PASSWORD SMTP_FROM BACKUP_AGE_RECIPIENT)
+for key in "${required_settings[@]}"; do
+  [[ -n "${!key:-}" ]] || {
+    echo "$key must be exported before generating a production environment" >&2
+    exit 2
+  }
+done
+[[ "$BACKUP_AGE_RECIPIENT" =~ ^age1[023456789acdefghjklmnpqrstuvwxyz]{58}$ ]] || {
+  echo "BACKUP_AGE_RECIPIENT is not a valid age X25519 public recipient" >&2
+  exit 2
+}
 [[ ! -e "$output" ]] || {
   echo "refusing to overwrite existing environment file: $output" >&2
   exit 1
@@ -27,6 +39,25 @@ command -v openssl >/dev/null 2>&1 || {
   echo "openssl is required" >&2
   exit 1
 }
+
+lock_file="$(cd "$(dirname "$0")" && pwd)/images.lock"
+[[ -f "$lock_file" ]] || { echo "image lock file is missing: $lock_file" >&2; exit 1; }
+while IFS='=' read -r key value; do
+  [[ "$key" =~ ^[A-Z][A-Z0-9_]*$ && -n "$value" ]] || continue
+  if [[ -z "${!key:-}" ]]; then
+    printf -v "$key" '%s' "$value"
+    export "$key"
+  fi
+done <"$lock_file"
+
+image_keys=(BUN_IMAGE GOLANG_IMAGE ALPINE_IMAGE POSTGRES_IMAGE REDIS_IMAGE CADDY_IMAGE)
+for key in "${image_keys[@]}"; do
+  value="${!key:-}"
+  [[ "$value" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]] || {
+    echo "$key must be exported as a registry-verified digest reference" >&2
+    exit 2
+  }
+done
 
 umask 077
 mkdir -p "$(dirname "$output")"
@@ -51,6 +82,14 @@ cat >"$tmp" <<EOF
 LICENSE_DOMAIN=$domain
 ACME_EMAIL=$admin_email
 LICENSEHUB_VERSION=${LICENSEHUB_VERSION:-0.1.0}
+LICENSEHUB_COMMIT=${LICENSEHUB_COMMIT:-unknown}
+LICENSEHUB_BUILD_DATE=${LICENSEHUB_BUILD_DATE:-unknown}
+BUN_IMAGE=$BUN_IMAGE
+GOLANG_IMAGE=$GOLANG_IMAGE
+ALPINE_IMAGE=$ALPINE_IMAGE
+POSTGRES_IMAGE=$POSTGRES_IMAGE
+REDIS_IMAGE=$REDIS_IMAGE
+CADDY_IMAGE=$CADDY_IMAGE
 
 POSTGRES_USER=licensehub
 POSTGRES_DB=licensehub
@@ -69,6 +108,19 @@ ADMIN_EMAILS=$admin_email
 RATE_LIMIT_API=60
 RATE_LIMIT_ADMIN=120
 RATE_LIMIT_AUTH=20
+BF_MAX_FAILS=5
+BF_LOCKOUT_SECONDS=30
+
+SMTP_HOST=${SMTP_HOST:-}
+SMTP_PORT=${SMTP_PORT:-587}
+SMTP_USERNAME=${SMTP_USERNAME:-}
+SMTP_PASSWORD=${SMTP_PASSWORD:-}
+SMTP_FROM=${SMTP_FROM:-}
+
+BACKUP_AGE_RECIPIENT=$BACKUP_AGE_RECIPIENT
+BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-30}
+BACKUP_OFFSITE_HOOK=${BACKUP_OFFSITE_HOOK:-}
+ALERT_HOOK=${ALERT_HOOK:-}
 EOF
 
 chmod 600 "$tmp"

@@ -80,8 +80,23 @@ func DefaultTemplates() map[string]string {
 }
 
 func (s *EmailService) Send(to, subject, htmlBody string) error {
+	return s.send(to, subject, htmlBody, false)
+}
+
+// sendSensitive suppresses recipient and subject metadata in logs. OTP codes
+// are already confined to the SMTP message body; this also prevents the OTP
+// identity from leaking through routine success/failure telemetry.
+func (s *EmailService) sendSensitive(to, subject, htmlBody string) error {
+	return s.send(to, subject, htmlBody, true)
+}
+
+func (s *EmailService) send(to, subject, htmlBody string, sensitive bool) error {
 	if !s.enabled {
-		s.logger.Info("email skipped (not configured)", "to", to, "subject", subject)
+		if sensitive {
+			s.logger.Warn("sensitive email skipped: SMTP not configured")
+		} else {
+			s.logger.Info("email skipped (not configured)", "to", to, "subject", subject)
+		}
 		return nil
 	}
 
@@ -104,15 +119,27 @@ func (s *EmailService) Send(to, subject, htmlBody string) error {
 	err := s.sendOnce(addr, to, []byte(msg))
 	if err != nil {
 		// Retry once after a short delay — transient TCP / TLS hiccups.
-		s.logger.Warn("email send failed, retrying", "to", to, "error", err)
+		if sensitive {
+			s.logger.Warn("sensitive email send failed, retrying", "error", err)
+		} else {
+			s.logger.Warn("email send failed, retrying", "to", to, "error", err)
+		}
 		time.Sleep(3 * time.Second)
 		err = s.sendOnce(addr, to, []byte(msg))
 		if err != nil {
-			s.logger.Error("email send failed after retry", "to", to, "error", err)
+			if sensitive {
+				s.logger.Error("sensitive email send failed after retry", "error", err)
+			} else {
+				s.logger.Error("email send failed after retry", "to", to, "error", err)
+			}
 			return fmt.Errorf("email send: %w", err)
 		}
 	}
-	s.logger.Info("email sent", "to", to, "subject", subject)
+	if sensitive {
+		s.logger.Info("sensitive email sent")
+	} else {
+		s.logger.Info("email sent", "to", to, "subject", subject)
+	}
 	return nil
 }
 
@@ -556,7 +583,7 @@ func (s *EmailService) SendWelcome(to, name string) {
 	}()
 }
 
-func (s *EmailService) SendOTPCode(to, code string) {
+func (s *EmailService) SendOTPCode(to, code string) error {
 	body := `<!DOCTYPE html>
 <html><body style="font-family: -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
 <h2>Your login code</h2>
@@ -564,11 +591,11 @@ func (s *EmailService) SendOTPCode(to, code string) {
 <div style="background: #f4f4f5; border-radius: 8px; padding: 16px; margin: 16px 0; font-family: monospace; font-size: 32px; text-align: center; letter-spacing: 8px; font-weight: bold;">` + code + `</div>
 <p style="color: #666; font-size: 14px;">This code expires in 10 minutes. If you didn't request this, ignore this email.</p>
 </body></html>`
-	go func() {
-		if err := s.Send(to, "Your login code", body); err != nil {
-			s.logger.Error("OTP email delivery failed", "to", to, "error", err)
-		}
-	}()
+	if err := s.sendSensitive(to, "Your login code", body); err != nil {
+		s.logger.Error("OTP email delivery failed", "error", err)
+		return err
+	}
+	return nil
 }
 
 func (s *EmailService) SendPlanChanged(to, productName, oldPlan, newPlan string) {

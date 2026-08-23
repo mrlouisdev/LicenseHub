@@ -1,6 +1,6 @@
 use std::{io::Read, time::Duration};
 
-use reqwest::blocking::Client;
+use reqwest::{blocking::Client, redirect::Policy};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{LicenseError, Result};
@@ -86,6 +86,7 @@ impl HttpTransport {
         }
         let client = Client::builder()
             .timeout(timeout)
+            .redirect(Policy::none())
             .build()
             .map_err(|e| LicenseError::Configuration(format!("HTTP client: {e}")))?;
         Ok(Self {
@@ -126,12 +127,106 @@ impl LicenseTransport for HttpTransport {
 
 #[cfg(test)]
 mod tests {
-    use super::{read_capped, MAX_ERROR_RESPONSE_BYTES};
-    use std::io::Cursor;
+    use super::{
+        read_capped, ActivateRequest, HttpTransport, LicenseTransport, MAX_ERROR_RESPONSE_BYTES,
+    };
+    use std::{
+        io::{Cursor, Read, Write},
+        net::{TcpListener, TcpStream},
+        thread,
+        time::{Duration, Instant},
+    };
 
     #[test]
     fn capped_reader_rejects_oversized_response() {
         let body = vec![b'x'; MAX_ERROR_RESPONSE_BYTES + 1];
         assert!(read_capped(Cursor::new(body), MAX_ERROR_RESPONSE_BYTES).is_err());
+    }
+
+    fn consume_request(mut stream: &TcpStream) {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("set read timeout");
+        let mut request = Vec::new();
+        let mut buf = [0_u8; 2048];
+        loop {
+            match stream.read(&mut buf) {
+                Ok(0) => break,
+                Ok(count) => {
+                    request.extend_from_slice(&buf[..count]);
+                    if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let headers = String::from_utf8_lossy(&request[..end + 4]);
+                        let body_len = headers
+                            .lines()
+                            .find_map(|line| {
+                                let (name, value) = line.split_once(':')?;
+                                name.eq_ignore_ascii_case("content-length")
+                                    .then(|| value.trim().parse::<usize>().ok())
+                                    .flatten()
+                            })
+                            .unwrap_or(0);
+                        if request.len() >= end + 4 + body_len {
+                            break;
+                        }
+                    }
+                }
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::WouldBlock
+                        || error.kind() == std::io::ErrorKind::TimedOut =>
+                {
+                    break
+                }
+                Err(error) => panic!("read request: {error}"),
+            }
+        }
+    }
+
+    #[test]
+    fn post_redirect_is_not_followed() {
+        let destination = TcpListener::bind("127.0.0.1:0").expect("bind destination");
+        destination
+            .set_nonblocking(true)
+            .expect("set destination nonblocking");
+        let destination_address = destination.local_addr().expect("destination address");
+        let origin = TcpListener::bind("127.0.0.1:0").expect("bind origin");
+        let origin_address = origin.local_addr().expect("origin address");
+
+        let origin_thread = thread::spawn(move || {
+            let (mut stream, _) = origin.accept().expect("accept origin request");
+            consume_request(&stream);
+            write!(
+                stream,
+                "HTTP/1.1 307 Temporary Redirect\r\nLocation: http://{destination_address}/next\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .expect("write redirect");
+        });
+
+        let transport = HttpTransport::new(
+            &format!("http://{origin_address}"),
+            Duration::from_secs(3),
+            true,
+        )
+        .expect("create transport");
+        let result = transport.activate(ActivateRequest {
+            product_id: "redirect-test",
+            license_key: "fixture-value",
+            device_id: "device-test",
+        });
+        assert!(result.is_err(), "redirect must be returned as an error");
+        origin_thread.join().expect("origin thread");
+
+        let deadline = Instant::now() + Duration::from_millis(500);
+        loop {
+            match destination.accept() {
+                Ok(_) => panic!("redirect destination received a request"),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    if Instant::now() >= deadline {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(20));
+                }
+                Err(error) => panic!("accept destination: {error}"),
+            }
+        }
     }
 }

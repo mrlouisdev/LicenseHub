@@ -15,22 +15,31 @@ import (
 )
 
 type Claims struct {
-	UserID  string `json:"uid"`
-	Email   string `json:"email"`
-	Name    string `json:"name"`
-	IsAdmin bool   `json:"adm,omitempty"`
+	UserID         string `json:"uid"`
+	Email          string `json:"email"`
+	Name           string `json:"name"`
+	IsAdmin        bool   `json:"adm,omitempty"`
+	SessionVersion int64  `json:"sv"`
+	AuthMethod     string `json:"amr,omitempty"`
 	jwt.RegisteredClaims
 }
 
 func IssueJWT(secret, userID, email, name string, isAdmin bool, ttl time.Duration) (string, error) {
+	return IssueJWTWithSession(secret, userID, email, name, isAdmin, ttl, 0, "")
+}
+
+func IssueJWTWithSession(secret, userID, email, name string, isAdmin bool, ttl time.Duration, sessionVersion int64, authMethod string) (string, error) {
 	claims := Claims{
-		UserID:  userID,
-		Email:   email,
-		Name:    name,
-		IsAdmin: isAdmin,
+		UserID:         userID,
+		Email:          email,
+		Name:           name,
+		IsAdmin:        isAdmin,
+		SessionVersion: sessionVersion,
+		AuthMethod:     authMethod,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ID:        store.NewID(),
 		},
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
@@ -39,6 +48,10 @@ func IssueJWT(secret, userID, email, name string, isAdmin bool, ttl time.Duratio
 // AdminChecker checks if a user has admin privileges by user ID.
 // Injected at startup — queries the database for the user's role.
 type AdminChecker func(ctx context.Context, userID string) bool
+
+// SessionStateChecker verifies session-version revocation and returns the
+// current admin role in one authoritative database lookup.
+type SessionStateChecker func(ctx context.Context, userID string, tokenVersion int64) (isAdmin, valid bool)
 
 // SessionAuth validates a JWT from the Authorization header or session cookie.
 // Admin status is checked at request time (from DB, not JWT claims) for security —
@@ -49,6 +62,16 @@ func SessionAuth(secret string, adminCheck ...AdminChecker) gin.HandlerFunc {
 		checkAdmin = adminCheck[0]
 	}
 
+	return sessionAuth(secret, checkAdmin, nil)
+}
+
+// SessionAuthWithState validates access-token revocation in addition to JWT
+// signature/expiry. Production routes should use this variant.
+func SessionAuthWithState(secret string, stateCheck SessionStateChecker) gin.HandlerFunc {
+	return sessionAuth(secret, nil, stateCheck)
+}
+
+func sessionAuth(secret string, checkAdmin AdminChecker, stateCheck SessionStateChecker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		raw := extractBearer(c)
 		if raw == "" {
@@ -62,10 +85,13 @@ func SessionAuth(secret string, adminCheck ...AdminChecker) gin.HandlerFunc {
 		}
 
 		claims := &Claims{}
-		tok, err := jwt.ParseWithClaims(raw, claims, func(*jwt.Token) (any, error) {
+		tok, err := jwt.ParseWithClaims(raw, claims, func(token *jwt.Token) (any, error) {
+			if token.Method != jwt.SigningMethodHS256 {
+				return nil, jwt.ErrSignatureInvalid
+			}
 			return []byte(secret), nil
 		})
-		if err != nil || !tok.Valid {
+		if err != nil || !tok.Valid || claims.UserID == "" || claims.ID == "" {
 			abortWithError(c, http.StatusUnauthorized, "UNAUTHORIZED", "invalid or expired token")
 			return
 		}
@@ -73,10 +99,19 @@ func SessionAuth(secret string, adminCheck ...AdminChecker) gin.HandlerFunc {
 		c.Set("user_id", claims.UserID)
 		c.Set("email", claims.Email)
 		c.Set("name", claims.Name)
+		c.Set("jwt_id", claims.ID)
+		c.Set("auth_method", claims.AuthMethod)
 
 		// Determine admin status at request time from database role
 		isAdmin := false
-		if checkAdmin != nil {
+		if stateCheck != nil {
+			var valid bool
+			isAdmin, valid = stateCheck(c.Request.Context(), claims.UserID, claims.SessionVersion)
+			if !valid {
+				abortWithError(c, http.StatusUnauthorized, "SESSION_REVOKED", "session has been revoked")
+				return
+			}
+		} else if checkAdmin != nil {
 			isAdmin = checkAdmin(c.Request.Context(), claims.UserID)
 		} else {
 			isAdmin = claims.IsAdmin
@@ -105,6 +140,16 @@ func SessionAuth(secret string, adminCheck ...AdminChecker) gin.HandlerFunc {
 // Authorization header.
 func SessionOrAPIKey(secret string, db *store.Store, adminCheck AdminChecker) gin.HandlerFunc {
 	sessionMW := SessionAuth(secret, adminCheck)
+	return sessionOrAPIKey(sessionMW, db)
+}
+
+// SessionOrAPIKeyWithState is the revocation-aware production variant.
+func SessionOrAPIKeyWithState(secret string, db *store.Store, stateCheck SessionStateChecker) gin.HandlerFunc {
+	sessionMW := SessionAuthWithState(secret, stateCheck)
+	return sessionOrAPIKey(sessionMW, db)
+}
+
+func sessionOrAPIKey(sessionMW gin.HandlerFunc, db *store.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		raw := extractBearer(c)
 		if strings.HasPrefix(raw, "kg_live_") {
@@ -150,6 +195,23 @@ func AdminOnly() gin.HandlerFunc {
 		v, _ := c.Get("is_admin")
 		if v != true {
 			abortWithError(c, http.StatusForbidden, "FORBIDDEN", "admin required")
+			return
+		}
+		c.Next()
+	}
+}
+
+// RequirePasskeyStepUp protects interactive administration with a
+// phishing-resistant WebAuthn assertion. Scoped API keys remain governed by
+// their scopes because they are non-interactive automation credentials.
+func RequirePasskeyStepUp() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.GetString("auth_type") == "api_key" {
+			c.Next()
+			return
+		}
+		if c.GetString("auth_type") != "session" || c.GetString("auth_method") != "webauthn" {
+			abortWithError(c, http.StatusForbidden, "PASSKEY_STEP_UP_REQUIRED", "admin session requires passkey verification")
 			return
 		}
 		c.Next()

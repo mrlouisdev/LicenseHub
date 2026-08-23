@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-webauthn/webauthn/webauthn"
 
 	"github.com/tabloy/keygate/internal/config"
 	"github.com/tabloy/keygate/internal/middleware"
@@ -34,9 +35,10 @@ func setSecureCookie(c *gin.Context, name, value string, maxAge int, path string
 }
 
 type AuthHandler struct {
-	Store  *store.Store
-	Config *config.Config
-	Email  *service.EmailService
+	Store    *store.Store
+	Config   *config.Config
+	Email    *service.EmailService
+	WebAuthn *webauthn.WebAuthn
 }
 
 func (h *AuthHandler) Me(c *gin.Context) {
@@ -59,16 +61,11 @@ func (h *AuthHandler) Me(c *gin.Context) {
 
 func (h *AuthHandler) Logout(c *gin.Context) {
 	userID, _ := c.Get("user_id")
-	if raw, err := c.Cookie("refresh_token"); err == nil && raw != "" {
-		h.Store.DeleteRefreshToken(c, hashToken(raw))
-	}
-	// Delete user's other refresh tokens to fully invalidate session
 	if uid, ok := userID.(string); ok && uid != "" {
-		h.Store.DeleteUserRefreshTokens(c, uid)
-		h.Store.Audit(c, &model.AuditLog{
-			Entity: "session", EntityID: uid, Action: "logout",
-			ActorType: "user", ActorID: uid, IPAddress: c.ClientIP(),
-		})
+		if err := h.Store.RevokeUserSessionsWithAudit(c, uid, c.ClientIP()); err != nil {
+			response.Internal(c)
+			return
+		}
 	}
 	setSecureCookie(c, "session", "", -1, "/", h.Config.IsProduction(), true)
 	setSecureCookie(c, "refresh_token", "", -1, "/api/v1/auth/refresh", h.Config.IsProduction(), true)
@@ -116,25 +113,34 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	// Just issue the new session — the new token is a fresh row,
 	// the old row stays in DB with revoked_at set so a future
 	// replay of the old hash will trip ErrRefreshTokenReused.
-	h.issueSession(c, user)
+	if err := h.issueSession(c, user, "refresh"); err != nil {
+		response.Internal(c)
+		return
+	}
 	response.OK(c, gin.H{"status": "refreshed"})
 }
 
-func (h *AuthHandler) issueSession(c *gin.Context, user *model.User) {
+func (h *AuthHandler) issueSession(c *gin.Context, user *model.User, authMethod string) error {
 	// JWT includes admin claim for convenience, but the authoritative check
 	// happens at request time via DB role lookup in SessionAuth middleware.
-	token, _ := middleware.IssueJWT(
+	token, err := middleware.IssueJWTWithSession(
 		h.Config.JWTSecret, user.ID, user.Email, user.Name,
-		user.IsAdmin(), 24*time.Hour,
+		user.IsAdmin(), 24*time.Hour, user.SessionVersion, authMethod,
 	)
-	setSecureCookie(c, "session", token, 24*3600, "/", h.Config.IsProduction(), true)
+	if err != nil {
+		return err
+	}
 
 	// Long-lived refresh token (30 days)
 	rawRefresh := randomHex(32)
 	refreshHash := hashToken(rawRefresh)
 	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-	_ = h.Store.CreateRefreshToken(c, user.ID, refreshHash, expiresAt)
+	if err := h.Store.CreateRefreshToken(c, user.ID, refreshHash, expiresAt); err != nil {
+		return err
+	}
+	setSecureCookie(c, "session", token, 24*3600, "/", h.Config.IsProduction(), true)
 	setSecureCookie(c, "refresh_token", rawRefresh, 30*24*3600, "/api/v1/auth/refresh", h.Config.IsProduction(), true)
+	return nil
 }
 
 func hashToken(raw string) string {
@@ -191,7 +197,10 @@ func (h *AuthHandler) DevLogin(c *gin.Context) {
 		return
 	}
 
-	h.issueSession(c, user)
+	if err := h.issueSession(c, user, "dev"); err != nil {
+		response.Internal(c)
+		return
+	}
 	h.Store.Audit(c, &model.AuditLog{
 		Entity: "session", EntityID: user.ID, Action: "login",
 		ActorType: "dev_login", ActorID: user.ID, IPAddress: c.ClientIP(),
@@ -245,7 +254,10 @@ func (h *AuthHandler) AcceptInvite(svc *service.SeatService) gin.HandlerFunc {
 		// fields populated by triggers.
 		user, lerr := h.Store.FindUserByID(c, res.UserID)
 		if lerr == nil {
-			h.issueSession(c, user)
+			if err := h.issueSession(c, user, "invite"); err != nil {
+				response.Internal(c)
+				return
+			}
 		}
 		response.OK(c, res)
 	}

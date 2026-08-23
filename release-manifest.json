@@ -1,6 +1,8 @@
 {
   "format_version": 1,
   "release": "0.1.0",
+  "deployment_status": "historical_baseline_only",
+  "current_hardened_branch_deployed": false,
   "created_at_utc": "2026-08-21T22:20:51Z",
   "platform": "windows-x64",
   "artifacts": [
@@ -20,11 +22,11 @@
     "protocol_contract":"pass",
     "bindings_smoke":"pass (.NET, Node, Python, C++)",
     "licctl_four_stack_generation":"pass (self-contained win-x64)",
-    "docker_compose_and_edge_hardening":"pass (standalone and external-edge topology; live VPS)",
+    "docker_compose_and_edge_hardening":"pass (standalone and external-edge topology; local verification)",
     "browser_qa":"pass",
     "live_postgresql_restore_and_activation_race":"pass (machine A allowed, machine B denied, transactional restore verified)",
-    "production_https_acceptance":"pass (license.zmmo.shop; health, headers, metrics 404, key ring, strict JSON)",
-    "production_lifecycle":"pass (refresh, entitlements, quota, restart persistence, revoke, audit)"
+    "production_https_acceptance":"historical pass (license.zmmo.shop; not evidence for the current hardened branch)",
+    "production_lifecycle":"historical pass (refresh, entitlements, quota, restart persistence, revoke, audit)"
   },
   "authenticode":"not_signed_no_certificate_supplied"
 }

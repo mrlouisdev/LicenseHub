@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -30,6 +31,10 @@ type Store struct {
 	// column. Reads prefer the encrypted column with fallback to plaintext.
 	// nil means encryption is disabled (legacy mode).
 	LicenseKeyAEAD *crypto.AESGCM
+	// PasskeyCredentialAEAD encrypts the complete WebAuthn credential record.
+	// The credential id remains separately indexed for lookup; public key,
+	// counters, transports, attestation, and flags are encrypted at rest.
+	PasskeyCredentialAEAD *crypto.AESGCM
 }
 
 func New(dsn string) (*Store, error) {
@@ -276,6 +281,25 @@ func (s *Store) FindUserIsAdmin(ctx context.Context, userID string) bool {
 		return false
 	}
 	return role == model.RoleOwner || role == model.RoleAdmin
+}
+
+// FindUserSessionState returns the authoritative state used to validate an
+// access JWT. Returning valid=false for missing users makes deleted accounts
+// fail closed without waiting for token expiry.
+func (s *Store) FindUserSessionState(ctx context.Context, userID string, tokenVersion int64) (isAdmin, valid bool) {
+	var state struct {
+		Role           string `bun:"role"`
+		SessionVersion int64  `bun:"session_version"`
+	}
+	if err := s.DB.NewRaw(
+		"SELECT role, session_version FROM users WHERE id = ?", userID,
+	).Scan(ctx, &state); err != nil {
+		return false, false
+	}
+	if state.SessionVersion != tokenVersion {
+		return false, false
+	}
+	return state.Role == model.RoleOwner || state.Role == model.RoleAdmin, true
 }
 
 // ListAdmins returns all users with admin or owner role.
@@ -757,13 +781,67 @@ func (s *Store) Audit(ctx context.Context, log *model.AuditLog) {
 	if log.ID == "" {
 		log.ID = newID()
 	}
-	go func() {
-		auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if _, err := s.DB.NewInsert().Model(log).Exec(auditCtx); err != nil {
-			slog.Error("audit log write failed", "entity", log.Entity, "entity_id", log.EntityID, "action", log.Action, "error", err)
+	// Synchronous by design: returning before this insert finishes made audit
+	// records lossy on process shutdown and hid write failures from ordering.
+	// Mutations that require all-or-nothing semantics use RunAuditedMutation.
+	auditCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if _, err := s.DB.NewInsert().Model(log).Exec(auditCtx); err != nil {
+		slog.Error("audit log write failed", "entity", log.Entity, "entity_id", log.EntityID, "action", log.Action, "error", err)
+	}
+}
+
+// RunAuditedMutation commits a security-sensitive mutation and its audit row
+// in the same database transaction. Callers perform writes only through tx;
+// any mutation or audit failure rolls the entire transaction back.
+func (s *Store) RunAuditedMutation(ctx context.Context, log *model.AuditLog, mutate func(context.Context, bun.Tx) error) error {
+	if log == nil {
+		return errors.New("audit log is required")
+	}
+	if log.ID == "" {
+		log.ID = newID()
+	}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if err := mutate(ctx, tx); err != nil {
+		return err
+	}
+	if _, err := tx.NewInsert().Model(log).Exec(ctx); err != nil {
+		return fmt.Errorf("write audit log: %w", err)
+	}
+	return tx.Commit()
+}
+
+// RevokeUserSessionsWithAudit revokes refresh and access tokens atomically
+// with the logout audit event. The session_version increment invalidates JWTs.
+func (s *Store) RevokeUserSessionsWithAudit(ctx context.Context, userID, ip string) error {
+	log := &model.AuditLog{
+		Entity: "session", EntityID: userID, Action: "logout",
+		ActorType: "user", ActorID: userID, IPAddress: ip,
+	}
+	return s.RunAuditedMutation(ctx, log, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewRaw("DELETE FROM refresh_tokens WHERE user_id = ?", userID).Exec(ctx); err != nil {
+			return err
 		}
-	}()
+		res, err := tx.NewRaw(
+			"UPDATE users SET session_version = session_version + 1, updated_at = now() WHERE id = ?",
+			userID,
+		).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n != 1 {
+			return sql.ErrNoRows
+		}
+		return nil
+	})
 }
 
 // FindLicensesForGraceExpiry returns active/past_due licenses that have passed valid_until.
@@ -980,6 +1058,59 @@ func (s *Store) FindLatestValidOTPCode(ctx context.Context, email string) (*mode
 		Limit(1).
 		Scan(ctx)
 	return otp, err
+}
+
+// ConsumeOTPCode serializes verification of the newest live code for an
+// email. Exactly one concurrent caller can transition a matching code to
+// used=true; every attempt is counted in the same transaction.
+func (s *Store) ConsumeOTPCode(ctx context.Context, email, presentedHash string) (*model.OTPCode, bool, error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	otp := new(model.OTPCode)
+	err = tx.NewSelect().Model(otp).
+		Where("email = ?", email).
+		Where("used = false").
+		Where("expires_at > now()").
+		Where("attempts < 5").
+		OrderExpr("created_at DESC").
+		Limit(1).
+		For("UPDATE").
+		Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+
+	matched := hmac.Equal([]byte(otp.CodeHash), []byte(presentedHash))
+	otp.Attempts++
+	q := tx.NewUpdate().Model((*model.OTPCode)(nil)).
+		Set("attempts = attempts + 1").
+		Where("id = ? AND used = false AND attempts < 5", otp.ID)
+	if matched {
+		q = q.Set("used = true")
+		otp.Used = true
+	}
+	res, err := q.Exec(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return nil, false, err
+	}
+	if n != 1 {
+		return nil, false, nil
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, false, err
+	}
+	return otp, matched, nil
 }
 
 func (s *Store) IncrementOTPAttempts(ctx context.Context, id string) error {

@@ -52,7 +52,12 @@ Keep server configuration in a dedicated secrets manager and test recovery.
 ## Backup policy
 
 - On Linux run `deploy/backup.sh`; on Windows administration hosts use
-  `Backup-LicenseHub.ps1`. Run it daily and before every upgrade/migration.
+  `Backup-LicenseHub.ps1 -EnvironmentFile <protected-env>`. Both paths emit
+  the same v2 bundle: database dump, encrypted recovery environment, image
+  lock, manifest and checksums. Run it daily and before every upgrade/migration.
+- Keep the age identity only on the recovery host; the backup directory contains
+  no plaintext environment or signing material. `Restore-LicenseHub.ps1` and
+  `deploy/restore.sh` reject incomplete or non-v2 bundles.
 - Retain at least 7 daily, 4 weekly and 3 monthly backups.
 - Copy backups off the VPS; storage on the same host is not disaster recovery.
 - Restore-test a backup on an isolated host at least monthly.

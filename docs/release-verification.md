@@ -1,4 +1,9 @@
-# Release verification 0.1.0
+# Release verification
+
+This document separates the historical `0.1.0` target-VPS acceptance from the
+current hardened branch. The historical acceptance record remains useful
+evidence for the stable domain, but it does not prove that the hardened branch
+has been deployed to production.
 
 ## Passed locally
 
@@ -19,7 +24,7 @@
 - Linux VPS scripts cover secret generation, non-public bootstrap, pre-deploy
   backup, transactional restore and public edge verification.
 
-## Target-VPS acceptance passed
+## Historical target-VPS acceptance (0.1.0)
 
 Production acceptance passed on `license.zmmo.shop` against the checked
 source-only bundle deployed through an existing Caddy edge:
@@ -39,6 +44,16 @@ source-only bundle deployed through an existing Caddy edge:
 The VPS retains a mode-0600 machine-readable acceptance record and two rollback
 layers: the pre-cutover HubFlow dump/config snapshot and LicenseHub's verified
 backup plus pre-restore safety dump.
+
+## Current hardened-branch gates
+
+- Local Go, Rust, .NET, four-stack `licctl` fixtures and frontend verification
+  must pass from the checked-out commit before a deployment is staged.
+- A production claim requires a fresh backup, staged deploy evidence, public
+  HTTPS lifecycle verification, restart/revoke/logout replay checks, and a
+  direct-origin/edge check for the current image digest.
+- Until those checks are recorded for the current commit, production status is
+  `NOT DEPLOYED` even when the historical `0.1.0` acceptance record is present.
 
 ## Release gates
 

@@ -6,10 +6,12 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,7 +21,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 	"github.com/stripe/stripe-go/v82"
 
 	"github.com/tabloy/keygate/internal/branding"
@@ -65,13 +70,44 @@ func main() {
 	defer db.Close()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	webAuthn, err := newWebAuthn(cfg.BaseURL)
+	if err != nil {
+		log.Fatalf("webauthn: %v", err)
+	}
 
-	// Optional Redis-backed rate limiting
+	var bf *middleware.BruteForceProtection
+	var redisClient *redis.Client
+	// Redis is mandatory in production (validated above) and is the shared
+	// state boundary for rate limiting and brute-force lockouts.
 	if cfg.RedisURL != "" {
-		logger.Warn("REDIS_URL is configured but this build still uses the in-memory rate limiter")
-		// To enable: import github.com/redis/go-redis/v9 and uncomment:
-		// rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisURL})
-		// middleware.SetRateLimitBackend(middleware.NewRedisBackend(rdb))
+		redisOptions, parseErr := redis.ParseURL(cfg.RedisURL)
+		if parseErr != nil {
+			log.Fatalf("redis: REDIS_URL is invalid")
+		}
+		redisClient = redis.NewClient(redisOptions)
+		pingCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		pingErr := redisClient.Ping(pingCtx).Err()
+		cancel()
+		if pingErr != nil {
+			_ = redisClient.Close()
+			log.Fatalf("redis: distributed security state is unavailable")
+		}
+		defer redisClient.Close()
+		middleware.SetRateLimitBackend(middleware.NewRedisBackend(redisClient))
+		bf = middleware.NewRedisBruteForceProtection(
+			redisClient,
+			cfg.BFMaxFails,
+			time.Duration(cfg.BFLockoutSeconds)*time.Second,
+			30*time.Minute,
+			5*time.Minute,
+		)
+	} else {
+		bf = middleware.NewBruteForceProtection(
+			cfg.BFMaxFails,
+			time.Duration(cfg.BFLockoutSeconds)*time.Second,
+			30*time.Minute,
+			5*time.Minute,
+		)
 	}
 
 	if cfg.StripeSecretKey != "" {
@@ -87,12 +123,6 @@ func main() {
 		webhookRetryInterval = 30 * time.Second
 	}
 
-	bf := middleware.NewBruteForceProtection(
-		cfg.BFMaxFails,
-		time.Duration(cfg.BFLockoutSeconds)*time.Second,
-		30*time.Minute,
-		5*time.Minute,
-	)
 	webhookSvc := service.NewWebhookService(db, logger, webhookHTTPTimeout, cfg.WebhookMaxAttempts)
 	emailSvc := service.NewEmailService(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom, logger, db)
 	// LICENSE_SIGNING_KEY is a 32-byte ed25519 seed in hex. Parsed
@@ -171,7 +201,9 @@ func main() {
 		} else {
 			// Wire license-key encryption — orthogonal to storage.
 			db.LicenseKeyAEAD = crypto.MustDeriveAEAD(masterRaw, "license-key")
+			db.PasskeyCredentialAEAD = crypto.MustDeriveAEAD(masterRaw, "passkey-credential")
 			logger.Info("license key encryption: enabled")
+			logger.Info("passkey credential encryption: enabled")
 
 			// Best-effort backfill of unencrypted historical rows. Non-blocking,
 			// resumable across restarts. No timeout — runs until done or shutdown.
@@ -215,7 +247,7 @@ func main() {
 	})
 
 	licenseH := handler.NewLicenseHandler(licenseSvc)
-	authH := &handler.AuthHandler{Store: db, Config: cfg, Email: emailSvc}
+	authH := &handler.AuthHandler{Store: db, Config: cfg, Email: emailSvc, WebAuthn: webAuthn}
 	stripeH := &payment.StripeHandler{
 		Store:         db,
 		WebhookSecret: cfg.StripeWebhookSecret,
@@ -279,6 +311,8 @@ func main() {
 
 	go emailSvc.StartEmailQueueProcessor(ctx, db)
 
+	go db.StartAuditOutboxLoop(ctx, time.Second)
+
 	go systemH.StartAutoCheck(ctx.Done())
 
 	// Cleanup expired transient rows every hour. Grouped together
@@ -299,6 +333,7 @@ func main() {
 			case <-ticker.C:
 				db.CleanExpiredOTPs(context.Background())
 				db.CleanExpiredRefreshTokens(context.Background())
+				db.CleanExpiredWebAuthnSessions(context.Background())
 				_, _ = db.IdempotencyPruneExpired(context.Background())
 			}
 		}
@@ -497,7 +532,7 @@ func main() {
 	lic := v1.Group("/license",
 		middleware.NoStore(),
 		middleware.LicenseBruteForceGuard(bf),
-		middleware.RateLimitByIP(licRateLimit, time.Minute))
+		middleware.RateLimitByIPFailClosed(licRateLimit, time.Minute))
 	{
 		// Idempotent-by-design endpoints (apply Idempotency-Key middleware
 		// to write paths only — read-style verifies are already idempotent).
@@ -528,15 +563,15 @@ func main() {
 
 	// LicenseHub universal SDK aliases. These deliberately live alongside,
 	// rather than replace, the upstream /api/v1/license routes.
+	r.GET("/v1/client/public-keys", middleware.NoStore(), func(c *gin.Context) {
+		c.Header("Cache-Control", "public, max-age=3600")
+		c.JSON(http.StatusOK, gin.H{"keys": licensePublicKeyMap})
+	})
 	client := r.Group("/v1/client",
 		middleware.NoStore(),
 		middleware.LicenseBruteForceGuard(bf),
-		middleware.RateLimitByIP(licRateLimit, time.Minute))
+		middleware.RateLimitByIPFailClosed(licRateLimit, time.Minute))
 	{
-		client.GET("/public-keys", func(c *gin.Context) {
-			c.Header("Cache-Control", "public, max-age=3600")
-			c.JSON(http.StatusOK, gin.H{"keys": licensePublicKeyMap})
-		})
 		client.POST("/activate", middleware.Idempotency(db), licenseH.ClientActivate)
 		client.POST("/refresh", licenseH.ClientRefresh)
 		client.POST("/deactivate", licenseH.ClientDeactivate)
@@ -548,7 +583,8 @@ func main() {
 	// guessing. Live outside /license/* on purpose: this endpoint
 	// has nothing to do with the SDK identity.
 	v1.POST("/invites/accept",
-		middleware.RateLimitByIP(60, time.Minute),
+		middleware.LicenseBruteForceGuard(bf),
+		middleware.RateLimitByIPFailClosed(60, time.Minute),
 		authH.AcceptInvite(seatSvc))
 
 	// Release feed endpoints.
@@ -583,14 +619,24 @@ func main() {
 	v1.GET("/releases/upgrade.json", feedGone)
 	v1.GET("/releases/feed", feedGone)
 
-	auth := v1.Group("/auth", middleware.RateLimitByIP(cfg.RateLimitAuth, time.Minute))
+	auth := v1.Group("/auth",
+		middleware.LicenseBruteForceGuard(bf),
+		middleware.RateLimitByIPFailClosed(cfg.RateLimitAuth, time.Minute))
 	{
 		auth.GET("/providers", authH.Providers)
 		auth.POST("/otp/send", authH.OTPSend)
 		auth.POST("/otp/verify", authH.OTPVerify)
 		auth.POST("/dev-login", authH.DevLogin)
-		auth.POST("/logout", middleware.SessionAuth(cfg.JWTSecret, db.FindUserIsAdmin), authH.Logout)
+		auth.POST("/logout", middleware.SessionAuthWithState(cfg.JWTSecret, db.FindUserSessionState), authH.Logout)
 		auth.POST("/refresh", authH.Refresh)
+		passkeySession := middleware.SessionAuthWithState(cfg.JWTSecret, db.FindUserSessionState)
+		auth.POST("/passkey/register/begin", passkeySession, authH.PasskeyRegisterBegin)
+		auth.POST("/passkey/register/finish", passkeySession, authH.PasskeyRegisterFinish)
+		auth.POST("/passkey/assertion/begin", passkeySession, authH.PasskeyAssertionBegin)
+		auth.POST("/passkey/assertion/finish", passkeySession, authH.PasskeyAssertionFinish)
+		auth.GET("/passkey", passkeySession, authH.PasskeyList)
+		auth.DELETE("/passkey/:id", passkeySession, authH.PasskeyDelete)
+		auth.POST("/passkey/recover", authH.PasskeyRecover)
 	}
 
 	v1.POST("/webhook/stripe", middleware.RateLimitByIP(60, time.Minute), stripeH.Webhook)
@@ -605,7 +651,7 @@ func main() {
 	// Unified checkout: GET /pay/:checkout_id → Stripe
 	r.GET("/pay/:checkout_id", stripeH.CheckoutByPlan)
 
-	portal := v1.Group("/portal", middleware.SessionAuth(cfg.JWTSecret, db.FindUserIsAdmin))
+	portal := v1.Group("/portal", middleware.SessionAuthWithState(cfg.JWTSecret, db.FindUserSessionState))
 	{
 		portal.GET("/me", authH.Me)
 		portal.GET("/licenses", func(c *gin.Context) {
@@ -855,8 +901,9 @@ func main() {
 	// concern, and a leaked CI key shouldn't be able to swap the
 	// product's release-signing identity.
 	baseAdminMW := []gin.HandlerFunc{
-		middleware.SessionOrAPIKey(cfg.JWTSecret, db, db.FindUserIsAdmin),
-		middleware.RateLimitByIP(cfg.RateLimitAdmin, time.Minute),
+		middleware.SessionOrAPIKeyWithState(cfg.JWTSecret, db, db.FindUserSessionState),
+		middleware.RateLimitByIPFailClosed(cfg.RateLimitAdmin, time.Minute),
+		middleware.RequirePasskeyStepUp(),
 	}
 	adminMW := append([]gin.HandlerFunc{}, baseAdminMW...)
 	adminMW = append(adminMW, middleware.RequireScope(model.ScopeAdmin))
@@ -1018,6 +1065,30 @@ func main() {
 		log.Fatalf("server forced shutdown: %v", err)
 	}
 	log.Println("Server exited gracefully")
+}
+
+func newWebAuthn(baseURL string) (*webauthn.WebAuthn, error) {
+	u, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || u.Scheme == "" || u.Host == "" || u.Hostname() == "" {
+		return nil, fmt.Errorf("BASE_URL must be an absolute origin for WebAuthn")
+	}
+	if u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1")) {
+		return nil, fmt.Errorf("WebAuthn BASE_URL must use HTTPS except on localhost")
+	}
+	origin := u.Scheme + "://" + u.Host
+	return webauthn.New(&webauthn.Config{
+		RPDisplayName: "LicenseHub",
+		RPID:          u.Hostname(),
+		RPOrigins:     []string{origin},
+		AuthenticatorSelection: protocol.AuthenticatorSelection{
+			ResidentKey:      protocol.ResidentKeyRequirementPreferred,
+			UserVerification: protocol.VerificationRequired,
+		},
+		Timeouts: webauthn.TimeoutsConfig{
+			Registration: webauthn.TimeoutConfig{Enforce: true, Timeout: 5 * time.Minute, TimeoutUVD: 5 * time.Minute},
+			Login:        webauthn.TimeoutConfig{Enforce: true, Timeout: 5 * time.Minute, TimeoutUVD: 5 * time.Minute},
+		},
+	})
 }
 
 // stripHTMLTags removes all HTML tags from a string to prevent XSS.

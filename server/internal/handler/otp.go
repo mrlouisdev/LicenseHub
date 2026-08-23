@@ -6,13 +6,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"log/slog"
 	"math/big"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/tabloy/keygate/internal/middleware"
 	"github.com/tabloy/keygate/internal/model"
 	"github.com/tabloy/keygate/pkg/response"
 )
@@ -27,6 +28,12 @@ func (h *AuthHandler) OTPSend(c *gin.Context) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(req.Email))
+	// Never mint a code that cannot be delivered in production. In
+	// particular, do not log or return codes as a fallback.
+	if h.Email == nil || !h.Email.IsConfigured() {
+		response.Err(c, http.StatusServiceUnavailable, "SMTP_UNAVAILABLE", "email authentication is temporarily unavailable")
+		return
+	}
 
 	// Rate limit: max 3 OTP requests per email per 10 minutes
 	count, err := h.Store.CountRecentOTPCodes(c, email)
@@ -40,7 +47,7 @@ func (h *AuthHandler) OTPSend(c *gin.Context) {
 	}
 
 	code := generateOTPCode()
-	codeHash := hashOTPCode(code)
+	codeHash := hashOTPCode(h.Config.JWTSecret, code)
 
 	otp := &model.OTPCode{
 		Email:     email,
@@ -52,11 +59,10 @@ func (h *AuthHandler) OTPSend(c *gin.Context) {
 		return
 	}
 
-	if h.Email != nil && h.Email.IsConfigured() {
-		h.Email.SendOTPCode(email, code)
-	} else {
-		slog.Warn("SMTP not configured — OTP code printed to log (configure SMTP for email delivery)",
-			"email", email, "code", code)
+	if err := h.Email.SendOTPCode(email, code); err != nil {
+		_ = h.Store.MarkOTPUsed(c, otp.ID)
+		response.Err(c, http.StatusServiceUnavailable, "SMTP_UNAVAILABLE", "email authentication is temporarily unavailable")
+		return
 	}
 
 	response.OK(c, gin.H{"status": "sent"})
@@ -75,28 +81,19 @@ func (h *AuthHandler) OTPVerify(c *gin.Context) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	code := strings.TrimSpace(req.Code)
 
-	otp, err := h.Store.FindLatestValidOTPCode(c, email)
-
-	// Always perform hash comparison to prevent timing-based email enumeration
-	expectedHash := hashOTPCode("") // dummy
-	otpID := ""
-	otpAttempts := 0
-	if err == nil && otp != nil {
-		expectedHash = otp.CodeHash
-		otpID = otp.ID
-		otpAttempts = otp.Attempts
+	// Hash unconditionally so unknown-email and known-email requests perform
+	// the same application-side work. The store locks and consumes atomically.
+	otp, matched, err := h.Store.ConsumeOTPCode(c, email, hashOTPCode(h.Config.JWTSecret, code))
+	if err != nil {
+		response.Internal(c)
+		return
 	}
-
-	codeMatch := hmac.Equal([]byte(hashOTPCode(code)), []byte(expectedHash))
-
-	if otpID != "" {
-		if err := h.Store.IncrementOTPAttempts(c, otpID); err != nil {
-			slog.Warn("failed to increment OTP attempts", "id", otpID, "error", err)
+	if !matched || otp == nil {
+		middleware.RecordBruteForceFailure(c, "ip:"+c.ClientIP())
+		remaining := 0
+		if otp != nil {
+			remaining = 5 - otp.Attempts
 		}
-	}
-
-	if !codeMatch || otp == nil {
-		remaining := 5 - (otpAttempts + 1)
 		if remaining <= 0 {
 			response.Unauthorized(c, "too many attempts, request a new code")
 		} else {
@@ -105,9 +102,7 @@ func (h *AuthHandler) OTPVerify(c *gin.Context) {
 		return
 	}
 
-	if err := h.Store.MarkOTPUsed(c, otpID); err != nil {
-		slog.Warn("failed to mark OTP used", "id", otpID, "error", err)
-	}
+	middleware.RecordBruteForceSuccess(c, "ip:"+c.ClientIP())
 
 	// Upsert user (create on first login)
 	user := &model.User{Email: email}
@@ -132,7 +127,10 @@ func (h *AuthHandler) OTPVerify(c *gin.Context) {
 		h.Email.SendWelcome(user.Email, user.Name)
 	}
 
-	h.issueSession(c, user)
+	if err := h.issueSession(c, user, "otp"); err != nil {
+		response.Internal(c)
+		return
+	}
 
 	h.Store.Audit(c, &model.AuditLog{
 		Entity: "session", EntityID: user.ID, Action: "login",
@@ -151,7 +149,9 @@ func generateOTPCode() string {
 	return fmt.Sprintf("%06d", n.Int64())
 }
 
-func hashOTPCode(code string) string {
-	h := sha256.Sum256([]byte(code))
-	return hex.EncodeToString(h[:])
+func hashOTPCode(secret, code string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte("licensehub:otp:v1\x00"))
+	_, _ = mac.Write([]byte(code))
+	return hex.EncodeToString(mac.Sum(nil))
 }

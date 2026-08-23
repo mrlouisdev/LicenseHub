@@ -26,21 +26,13 @@ if [[ -n "$existing_postgres" ]]; then
 fi
 
 licensehub_compose build --pull server
-licensehub_compose up -d postgres server
+licensehub_compose up -d postgres redis server
 
-healthy=0
-for _ in {1..60}; do
-  if licensehub_compose exec -T server curl -fsS http://127.0.0.1:9000/health >/dev/null 2>&1; then
-    healthy=1
-    break
-  fi
-  sleep 2
-done
-[[ "$healthy" == "1" ]] || {
+if ! licensehub_wait_for_health server; then
   licensehub_compose logs --tail 100 server >&2 || true
   echo "server failed to become healthy; restore with: ./restore.sh <backup> --force" >&2
   exit 1
-}
+fi
 
 setup_status="$(licensehub_compose exec -T server curl -fsS \
   http://127.0.0.1:9000/api/v1/setup/status)"
@@ -49,5 +41,9 @@ if grep -Eq '"needed"[[:space:]]*:[[:space:]]*true' <<<"$setup_status"; then
   exit 1
 fi
 
-licensehub_compose up -d caddy
+if licensehub_manage_caddy; then
+  licensehub_compose up -d caddy
+else
+  echo "CADDY_EXTERNAL skipped embedded Caddy"
+fi
 echo "DEPLOY_COMPLETE${backup_path:+ BACKUP $backup_path}"

@@ -1,4 +1,4 @@
-import { Mail, Terminal } from "lucide-react"
+import { KeyRound, Mail, Terminal } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Navigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
@@ -28,6 +28,11 @@ export default function LoginPage() {
   const [otpLoading, setOtpLoading] = useState(false)
   const [otpError, setOtpError] = useState("")
   const [otpCooldown, setOtpCooldown] = useState(0)
+  const [recoveryMode, setRecoveryMode] = useState(false)
+  const [recoveryEmail, setRecoveryEmail] = useState("")
+  const [recoveryCode, setRecoveryCode] = useState("")
+  const [recoveryLoading, setRecoveryLoading] = useState(false)
+  const [recoveryError, setRecoveryError] = useState("")
 
   useEffect(() => {
     auth
@@ -102,6 +107,21 @@ export default function LoginPage() {
     }
   }
 
+  const handleRecovery = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setRecoveryLoading(true)
+    setRecoveryError("")
+    try {
+      await auth.passkeyRecover(recoveryEmail, recoveryCode)
+      setRecoveryCode("")
+      await refetch()
+    } catch (err) {
+      setRecoveryError(err instanceof Error ? err.message : "Invalid recovery code")
+    } finally {
+      setRecoveryLoading(false)
+    }
+  }
+
   if (loading) return null
   if (user) return <Navigate to={user.is_admin ? "/admin" : "/portal"} replace />
 
@@ -117,7 +137,7 @@ export default function LoginPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           {/* OTP Email Step */}
-          {otpStep === "email" && (
+          {!recoveryMode && otpStep === "email" && (
             <form onSubmit={handleOtpSend} className="space-y-3">
               <div className="space-y-2">
                 <Label>{t("common.email")}</Label>
@@ -139,7 +159,7 @@ export default function LoginPage() {
           )}
 
           {/* OTP Code Step */}
-          {otpStep === "code" && (
+          {!recoveryMode && otpStep === "code" && (
             <form onSubmit={handleOtpVerify} className="space-y-3">
               <p className="text-sm text-muted-foreground text-center">{t("login.codeSentTo", { email: otpEmail })}</p>
               <div className="space-y-2">
@@ -185,7 +205,7 @@ export default function LoginPage() {
           )}
 
           {/* Dev Login (development only) */}
-          {devLogin && otpStep === "email" && (
+          {devLogin && !recoveryMode && otpStep === "email" && (
             <>
               <div className="relative my-4">
                 <Separator />
@@ -210,6 +230,67 @@ export default function LoginPage() {
                 <p className="text-xs text-muted-foreground text-center">{t("login.devNote")}</p>
               </form>
             </>
+          )}
+
+          {recoveryMode ? (
+            <form onSubmit={handleRecovery} className="space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="recovery-email">Admin email</Label>
+                <Input
+                  id="recovery-email"
+                  type="email"
+                  autoComplete="email"
+                  value={recoveryEmail}
+                  onChange={(event) => setRecoveryEmail(event.target.value)}
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="recovery-code">One-time recovery code</Label>
+                <Input
+                  id="recovery-code"
+                  type="text"
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  className="font-mono"
+                  value={recoveryCode}
+                  onChange={(event) => setRecoveryCode(event.target.value)}
+                  required
+                />
+              </div>
+              {recoveryError && <p className="text-sm text-destructive">{recoveryError}</p>}
+              <Button type="submit" className="w-full" disabled={recoveryLoading}>
+                <KeyRound className="mr-2 h-4 w-4" />
+                {recoveryLoading ? "Recovering…" : "Recover passkeys"}
+              </Button>
+              <button
+                type="button"
+                className="w-full text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  setRecoveryMode(false)
+                  setRecoveryCode("")
+                  setRecoveryError("")
+                }}
+              >
+                Back to sign in
+              </button>
+            </form>
+          ) : (
+            otpStep === "email" && (
+              <button
+                type="button"
+                className="w-full text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  setRecoveryEmail(otpEmail)
+                  setRecoveryMode(true)
+                  setOtpError("")
+                }}
+              >
+                Lost access to your admin passkeys?
+              </button>
+            )
           )}
         </CardContent>
       </Card>

@@ -80,8 +80,15 @@ oversized claims and unsafe timeout/clock-skew configuration.
 
 ## Integrate another app
 
-`cli/licctl/dist/win-x64/licctl.exe` generates a ready integration kit for
-.NET, Electron/Node, Python or C++. Run `licctl --help` for the command shape.
+`scripts/Build-LicctlPortable.ps1` creates
+`artifacts/licctl-portable-win-x64.zip`: a self-contained CLI distribution with
+the four adapters and native runtime. Extract it anywhere; `licctl.exe` can then
+generate a ready integration kit without a LicenseHub source checkout. Verify
+the archive with `scripts/Verify-LicctlPortable.ps1`. Run `licctl --help` for
+the command shape.
+The complete copy/add/doctor/verify/remove flow is documented in
+`docs/integration-quickstart.md`; the four-stack acceptance test is
+`tests/integration/Run-LicctlIntegration.ps1`.
 For signer rotation, first ship an app update whose manifest pins both current
 and next key IDs. Cut the VPS over only after adoption; see `docs/operations.md`.
 
@@ -95,16 +102,19 @@ Revocation takes effect at the next refresh or lease expiry; shorten
 
 ```powershell
 # Preview without mutation
-./scripts/Backup-LicenseHub.ps1 -DryRun
+./scripts/Backup-LicenseHub.ps1 -EnvironmentFile .\deploy\.env -DryRun
 
-# Create a database dump plus SHA-256 manifest
-./scripts/Backup-LicenseHub.ps1
+# Create an encrypted database + recovery-material backup on Linux
+./deploy/backup.sh ./backups
 
-# Destructive restore requires explicit -Force
-./scripts/Restore-LicenseHub.ps1 -BackupDirectory .\backups\20260819T120000Z -Force
+# Destructive restore requires explicit --force and keeps a safety dump
+./deploy/restore.sh ./backups/20260823T031500Z --force
 
 # Build a self-contained, checksummed migration bundle outside the repository
 ./scripts/Migrate-LicenseHubVps.ps1 -Destination D:\licensehub-migration -DryRun
+
+# Verify every staged file plus source/deployment metadata before transfer
+./scripts/Verify-MigrationBundle.ps1 -Bundle D:\licensehub-migration
 ```
 
 The bundle contains the database backup, Compose/Caddy configuration and exact
@@ -114,6 +124,9 @@ provisioned independently on the destination VPS. Read `docs/operations.md`,
 `release-manifest.json` before deployment or cutover.
 
 Use `-SkipBackup` to build a source-only bundle when the authoritative database
-lives on the VPS. Linux operations use `deploy/backup.sh`, `deploy/deploy.sh`
-and `deploy/restore.sh`; the existing PowerShell scripts remain available for a
-Windows administration host.
+lives on the VPS. Linux operations use `deploy/new-env.sh`, `deploy/bootstrap.sh`,
+`deploy/deploy.sh`, `deploy/backup.sh`, `deploy/restore.sh` and
+`deploy/recover-host.sh`. `deploy/install-operations.sh` installs a daily
+encrypted backup timer and five-minute public acceptance monitor. Pulled images
+are locked in `deploy/images.lock`; production secrets are mounted as Docker
+secrets and read through `*_FILE` variables.

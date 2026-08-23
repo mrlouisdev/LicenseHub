@@ -760,15 +760,10 @@ func (h *AdminHandler) RotateAPIKey(c *gin.Context) {
 	}
 	rawKey := store.GenerateRawAPIKey()
 	prefix := rawKey[:12]
-	if err := h.Store.RotateAPIKey(c, ak.ID, rawKey, prefix); err != nil {
+	if err := h.Store.RotateAPIKeyWithAudit(c, ak.ID, rawKey, prefix, adminID(c), c.ClientIP()); err != nil {
 		response.Internal(c)
 		return
 	}
-	h.Store.Audit(c, &model.AuditLog{
-		Entity: "api_key", EntityID: ak.ID, Action: "rotated",
-		ActorType: "admin", ActorID: adminID(c),
-		Changes: map[string]any{"name": ak.Name},
-	})
 	response.OK(c, gin.H{
 		"id":     ak.ID,
 		"name":   ak.Name,
@@ -780,14 +775,10 @@ func (h *AdminHandler) RotateAPIKey(c *gin.Context) {
 
 func (h *AdminHandler) DeleteAPIKey(c *gin.Context) {
 	id := c.Param("id")
-	if err := h.Store.DeleteAPIKey(c, id); err != nil {
+	if err := h.Store.DeleteAPIKeyWithAudit(c, id, adminID(c), c.ClientIP()); err != nil {
 		response.Internal(c)
 		return
 	}
-	h.Store.Audit(c, &model.AuditLog{
-		Entity: "api_key", EntityID: id, Action: "deleted",
-		ActorType: "admin", ActorID: adminID(c),
-	})
 	response.NoContent(c)
 }
 
@@ -970,14 +961,10 @@ func (h *AdminHandler) RevokeLicense(c *gin.Context) {
 	if !h.checkLicenseScope(c, id) {
 		return
 	}
-	if err := h.Store.RevokeLicense(c, id); err != nil {
+	if err := h.Store.RevokeLicenseWithAudit(c, id, adminID(c), c.ClientIP()); err != nil {
 		response.NotFound(c, err.Error())
 		return
 	}
-	h.Store.Audit(c, &model.AuditLog{
-		Entity: "license", EntityID: id, Action: "revoked",
-		ActorType: "admin", ActorID: adminID(c),
-	})
 	if h.Webhook != nil {
 		if lic, err := h.Store.FindLicenseByID(c, id); err == nil {
 			h.Webhook.Dispatch(c, lic.ProductID, "license.revoked", map[string]any{

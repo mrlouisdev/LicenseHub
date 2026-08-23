@@ -87,6 +87,53 @@ export const auth = {
       email,
       code,
     }),
+  passkeyRecover: (email: string, code: string) =>
+    post<{ status: string; next: string }>("/auth/passkey/recover", { email, code }),
+}
+
+export interface PasskeyCredential {
+  id: string
+  name: string
+  created_at: string
+  last_used_at?: string | null
+}
+
+export interface PasskeyStatus {
+  passkeys: PasskeyCredential[]
+  step_up_verified: boolean
+}
+
+export interface PasskeyCeremony {
+  ceremony_id: string
+  options: Record<string, any>
+}
+
+export interface PasskeyEnrollmentResult {
+  status: string
+  name: string
+  recovery_codes_issued: boolean
+  recovery_codes?: string[]
+  recovery_notice?: string
+}
+
+export const passkeys = {
+  status: () => get<PasskeyStatus>("/auth/passkey"),
+  registerBegin: () => post<PasskeyCeremony>("/auth/passkey/register/begin"),
+  registerFinish: (ceremonyId: string, name: string, credential: Record<string, any>) =>
+    post<PasskeyEnrollmentResult>("/auth/passkey/register/finish", {
+      ceremony_id: ceremonyId,
+      name,
+      credential,
+    }),
+  assertionBegin: () => post<PasskeyCeremony>("/auth/passkey/assertion/begin"),
+  assertionFinish: (ceremonyId: string, credential: Record<string, any>) =>
+    post<{ status: string }>("/auth/passkey/assertion/finish", {
+      ceremony_id: ceremonyId,
+      credential,
+    }),
+  remove: (id: string) => del<{ status: string }>(`/auth/passkey/${encodeURIComponent(id)}`),
+  recover: (email: string, code: string) =>
+    post<{ status: string; next: string }>("/auth/passkey/recover", { email, code }),
 }
 
 // ─── Checkout ───

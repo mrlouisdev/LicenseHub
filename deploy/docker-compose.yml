@@ -2,19 +2,71 @@ name: licensehub
 
 services:
   server:
+    image: licensehub-server:${LICENSEHUB_VERSION:-dev}
     build:
       context: ../server
       dockerfile: Dockerfile
       args:
         VERSION: ${LICENSEHUB_VERSION:-dev}
+        COMMIT: ${LICENSEHUB_COMMIT:-unknown}
+        BUILD_DATE: ${LICENSEHUB_BUILD_DATE:-unknown}
+        BUN_IMAGE: ${BUN_IMAGE:?set verified bun image digest}
+        GOLANG_IMAGE: ${GOLANG_IMAGE:?set verified golang image digest}
+        ALPINE_IMAGE: ${ALPINE_IMAGE:?set verified alpine image digest}
     environment:
       ENVIRONMENT: production
       BASE_URL: https://${LICENSE_DOMAIN}
       LICENSE_LEASE_TTL: ${LICENSE_LEASE_TTL:-72h}
-    env_file: .env
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      DATABASE_URL_FILE: /run/secrets/database_url
+      LICENSE_SIGNING_KEY_FILE: /run/secrets/license_signing_key
+      LICENSE_SIGNING_KEY_ID: ${LICENSE_SIGNING_KEY_ID:-v1}
+      LICENSE_RETAINED_PUBLIC_KEYS: ${LICENSE_RETAINED_PUBLIC_KEYS:-{}}
+      RELEASE_KEY_ENCRYPTION_KEY_FILE: /run/secrets/release_key_encryption_key
+      METRICS_TOKEN_FILE: /run/secrets/metrics_token
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+      SMTP_FROM: ${SMTP_FROM:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_LIVEMODE: ${STRIPE_LIVEMODE:-false}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:?set ADMIN_EMAILS}
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-}
+      STORAGE_REGION: ${STORAGE_REGION:-auto}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+      STORAGE_ACCESS_KEY_FILE: /run/secrets/storage_access_key
+      STORAGE_SECRET_KEY_FILE: /run/secrets/storage_secret_key
+      STORAGE_PUBLIC_URL: ${STORAGE_PUBLIC_URL:-}
+      STORAGE_FORCE_PATH_STYLE: ${STORAGE_FORCE_PATH_STYLE:-false}
+      STORAGE_UPLOAD_TTL: ${STORAGE_UPLOAD_TTL:-1h}
+      STORAGE_DOWNLOAD_TTL: ${STORAGE_DOWNLOAD_TTL:-10m}
+      MAX_RELEASE_SIGN_SIZE_MB: ${MAX_RELEASE_SIGN_SIZE_MB:-500}
+      RATE_LIMIT_API: ${RATE_LIMIT_API:-60}
+      RATE_LIMIT_ADMIN: ${RATE_LIMIT_ADMIN:-120}
+      RATE_LIMIT_AUTH: ${RATE_LIMIT_AUTH:-20}
+      BF_MAX_FAILS: ${BF_MAX_FAILS:-5}
+      BF_LOCKOUT_SECONDS: ${BF_LOCKOUT_SECONDS:-30}
+      WEBHOOK_MAX_ATTEMPTS: ${WEBHOOK_MAX_ATTEMPTS:-5}
+      WEBHOOK_RETRY_INTERVAL: ${WEBHOOK_RETRY_INTERVAL:-30s}
+      WEBHOOK_HTTP_TIMEOUT: ${WEBHOOK_HTTP_TIMEOUT:-10s}
+      QUOTA_WARNING_THRESHOLD: ${QUOTA_WARNING_THRESHOLD:-0.8}
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    secrets:
+      - database_url
+      - jwt_secret
+      - license_signing_key
+      - release_key_encryption_key
+      - metrics_token
+      - smtp_password
+      - storage_access_key
+      - storage_secret_key
     expose: ["9000"]
     restart: unless-stopped
     init: true
@@ -40,8 +92,14 @@ services:
     networks: [edge, data]
 
   postgres:
-    image: postgres:18-alpine
-    env_file: .env
+    image: ${POSTGRES_IMAGE:?set verified postgres image digest}
+    user: "70:70"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-licensehub}
+      POSTGRES_DB: ${POSTGRES_DB:-licensehub}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
     volumes:
       - postgres-data:/var/lib/postgresql
     restart: unless-stopped
@@ -62,9 +120,39 @@ services:
         max-file: "5"
     networks: [data]
 
+  redis:
+    image: ${REDIS_IMAGE:?set verified redis image digest}
+    user: "999:999"
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: [/tmp:size=32m,mode=1777]
+    pids_limit: 100
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks: [data]
+
   caddy:
-    image: caddy:2.10-alpine
-    env_file: .env
+    image: ${CADDY_IMAGE:?set verified caddy image digest}
+    user: "1000:1000"
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+      LICENSE_DOMAIN: ${LICENSE_DOMAIN:?set LICENSE_DOMAIN}
     ports:
       - "80:80"
       - "443:443"
@@ -96,6 +184,7 @@ services:
 
 volumes:
   postgres-data:
+  redis-data:
   caddy-data:
   caddy-config:
 
@@ -103,3 +192,23 @@ networks:
   edge:
   data:
     internal: true
+
+secrets:
+  postgres_password:
+    environment: POSTGRES_PASSWORD
+  database_url:
+    environment: DATABASE_URL
+  jwt_secret:
+    environment: JWT_SECRET
+  license_signing_key:
+    environment: LICENSE_SIGNING_KEY
+  release_key_encryption_key:
+    environment: RELEASE_KEY_ENCRYPTION_KEY
+  metrics_token:
+    environment: METRICS_TOKEN
+  smtp_password:
+    environment: SMTP_PASSWORD
+  storage_access_key:
+    environment: STORAGE_ACCESS_KEY
+  storage_secret_key:
+    environment: STORAGE_SECRET_KEY

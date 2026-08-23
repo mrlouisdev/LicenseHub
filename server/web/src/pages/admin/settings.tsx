@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowUpCircle, Check, Database, Mail, RefreshCw, Send, Shield, Trash2, UserPlus } from "lucide-react"
 import { useEffect, useState } from "react"
+import { PasskeyManager } from "@/components/passkey-security"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -306,6 +307,8 @@ export default function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="security" className="space-y-6">
+          <PasskeyManager />
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">{t("settings.rateLimit")}</CardTitle>

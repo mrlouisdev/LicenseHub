@@ -2,8 +2,44 @@ package config
 
 import (
 	"encoding/base64"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestEnvOrFile(t *testing.T) {
+	t.Run("regular protected file", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "value")
+		if err := os.WriteFile(path, []byte("fixture-value\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("CONFIG_FIXTURE_FILE", path)
+		got, err := envOrFile("CONFIG_FIXTURE")
+		if err != nil || got != "fixture-value" {
+			t.Fatalf("got %q, err=%v", got, err)
+		}
+	})
+
+	t.Run("direct and file are ambiguous", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "value")
+		if err := os.WriteFile(path, []byte("file"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("CONFIG_FIXTURE", "direct")
+		t.Setenv("CONFIG_FIXTURE_FILE", path)
+		if _, err := envOrFile("CONFIG_FIXTURE"); err == nil {
+			t.Fatal("expected ambiguous configuration to fail")
+		}
+	})
+
+	t.Run("relative path rejected", func(t *testing.T) {
+		t.Setenv("CONFIG_FIXTURE_FILE", "relative-value")
+		if _, err := envOrFile("CONFIG_FIXTURE"); err == nil {
+			t.Fatal("expected relative file path to fail")
+		}
+	})
+}
 
 func TestIsDevLoginAllowed(t *testing.T) {
 	tests := []struct {
@@ -150,6 +186,23 @@ func TestValidateSecurityDefaults(t *testing.T) {
 		}
 		if !found {
 			t.Fatalf("expected production encryption failure, got %v", fatal)
+		}
+	})
+
+	t.Run("production requires persistent auth controls and SMTP", func(t *testing.T) {
+		c := &Config{
+			Environment:             "production",
+			JWTSecret:               "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			LicenseSigningKey:       "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			ReleaseKeyEncryptionKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		}
+		_, fatal := c.ValidateSecurityDefaults()
+		joined := strings.Join(fatal, "\n")
+		if !strings.Contains(joined, "REDIS_URL is required") {
+			t.Fatalf("expected REDIS_URL failure, got %v", fatal)
+		}
+		if !strings.Contains(joined, "SMTP_HOST and SMTP_FROM are required") {
+			t.Fatalf("expected SMTP failure, got %v", fatal)
 		}
 	})
 

@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 import { Link, Navigate, Outlet, useLocation } from "react-router-dom"
 import { ErrorBoundary } from "@/components/error-boundary"
+import { AdminPasskeyGate } from "@/components/passkey-gate"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -99,84 +100,86 @@ export function AdminLayout() {
   }
 
   return (
-    <div className="flex h-screen bg-background">
-      {/* Sidebar */}
-      <aside className="w-60 border-r bg-card flex flex-col">
-        <div className="p-4 flex items-center gap-2.5">
-          <img src={logo_url || "/logo.svg"} alt={site_name} className="h-7 w-7" />
-          <span className="font-bold text-lg tracking-tight">{site_name}</span>
-          <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium ml-auto">Admin</span>
-        </div>
-        <Separator />
-        <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {adminNav.map((entry, idx) => {
-            if ("to" in entry) return renderNavItem(entry)
-            const group = entry as NavGroup
-            return (
-              <div key={group.label} className={cn(idx > 0 && "mt-4")}>
-                <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground/60 uppercase tracking-wider">
-                  {group.label}
-                </div>
-                {group.items.map(renderNavItem)}
-              </div>
-            )
-          })}
-        </nav>
-        {/* Settings — fixed at bottom above user menu */}
-        {renderNavItem({ to: "/admin/settings", label: t("nav.settings"), icon: Settings })}
-        <a href="https://keygate.app/sponsorships" target="_blank" rel="noopener noreferrer" className="block">
-          <div className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-pink-50 hover:text-pink-700 transition-colors">
-            <Heart className="h-4 w-4 text-pink-500 fill-pink-500" />
-            {t("nav.sponsor")}
+    <AdminPasskeyGate>
+      <div className="flex h-screen bg-background">
+        {/* Sidebar */}
+        <aside className="w-60 border-r bg-card flex flex-col">
+          <div className="p-4 flex items-center gap-2.5">
+            <img src={logo_url || "/logo.svg"} alt={site_name} className="h-7 w-7" />
+            <span className="font-bold text-lg tracking-tight">{site_name}</span>
+            <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium ml-auto">Admin</span>
           </div>
-        </a>
-        <Separator />
-        <div className="p-3">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="w-full justify-start gap-2">
-                <div className="h-6 w-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
-                  {user.name?.charAt(0)?.toUpperCase() || user.email.charAt(0).toUpperCase()}
+          <Separator />
+          <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
+            {adminNav.map((entry, idx) => {
+              if ("to" in entry) return renderNavItem(entry)
+              const group = entry as NavGroup
+              return (
+                <div key={group.label} className={cn(idx > 0 && "mt-4")}>
+                  <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground/60 uppercase tracking-wider">
+                    {group.label}
+                  </div>
+                  {group.items.map(renderNavItem)}
                 </div>
-                <span className="truncate text-sm">{user.name || user.email}</span>
-                <ChevronDown className="h-4 w-4 ml-auto opacity-50" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem className="text-xs text-muted-foreground">{user.email}</DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link to="/portal">{t("nav.portal")}</Link>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={logout} className="text-destructive">
-                <LogOut className="h-4 w-4 mr-2" /> {t("nav.logout")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        {/* Attribution required by AGPL v3 Section 7(b) — see NOTICE */}
-        <div className="px-4 py-2 border-t text-center">
-          <a
-            href={attribution_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-          >
-            {attribution_text}
+              )
+            })}
+          </nav>
+          {/* Settings — fixed at bottom above user menu */}
+          {renderNavItem({ to: "/admin/settings", label: t("nav.settings"), icon: Settings })}
+          <a href="https://keygate.app/sponsorships" target="_blank" rel="noopener noreferrer" className="block">
+            <div className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-pink-50 hover:text-pink-700 transition-colors">
+              <Heart className="h-4 w-4 text-pink-500 fill-pink-500" />
+              {t("nav.sponsor")}
+            </div>
           </a>
-        </div>
-      </aside>
+          <Separator />
+          <div className="p-3">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="w-full justify-start gap-2">
+                  <div className="h-6 w-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
+                    {user.name?.charAt(0)?.toUpperCase() || user.email.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="truncate text-sm">{user.name || user.email}</span>
+                  <ChevronDown className="h-4 w-4 ml-auto opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem className="text-xs text-muted-foreground">{user.email}</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link to="/portal">{t("nav.portal")}</Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={logout} className="text-destructive">
+                  <LogOut className="h-4 w-4 mr-2" /> {t("nav.logout")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          {/* Attribution required by AGPL v3 Section 7(b) — see NOTICE */}
+          <div className="px-4 py-2 border-t text-center">
+            <a
+              href={attribution_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+            >
+              {attribution_text}
+            </a>
+          </div>
+        </aside>
 
-      {/* Main */}
-      <main className="flex-1 overflow-auto">
-        <div className="p-8">
-          <ErrorBoundary>
-            <Outlet />
-          </ErrorBoundary>
-        </div>
-      </main>
-    </div>
+        {/* Main */}
+        <main className="flex-1 overflow-auto">
+          <div className="p-8">
+            <ErrorBoundary>
+              <Outlet />
+            </ErrorBoundary>
+          </div>
+        </main>
+      </div>
+    </AdminPasskeyGate>
   )
 }
 

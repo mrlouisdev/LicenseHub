@@ -12,13 +12,23 @@ $backup = [IO.Path]::GetFullPath($BackupDirectory)
 $backupPrefix = $backup.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 $compose = [IO.Path]::GetFullPath($ComposeFile)
 $safetyRoot = [IO.Path]::GetFullPath($SafetyBackupRoot)
+$requiredFiles = @('database.dump', 'recovery.env.age', 'image-lock.txt', 'backup-manifest.json', 'checksums.sha256')
 $dump = Join-Path $backup 'database.dump'
 $checksums = Join-Path $backup 'checksums.sha256'
 
-foreach ($required in @($compose, $dump, $checksums)) {
+foreach ($required in @($compose) + ($requiredFiles | ForEach-Object { Join-Path $backup $_ })) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "Required file not found: $required"
     }
+}
+
+$checksumNames = @(Get-Content -LiteralPath $checksums | ForEach-Object {
+    if ($_ -notmatch '^([a-fA-F0-9]{64})  (.+)$') { throw "Invalid checksum line: $_" }
+    $Matches[2]
+} | Sort-Object)
+$expectedNames = @('backup-manifest.json', 'database.dump', 'image-lock.txt', 'recovery.env.age')
+if (Compare-Object $expectedNames $checksumNames) {
+    throw 'Checksum manifest must contain exactly the v2 backup artifacts'
 }
 
 $failures = @()

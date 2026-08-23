@@ -40,7 +40,7 @@ done
 licensehub_require_runtime
 licensehub_compose config --quiet
 caddy_present=0
-if licensehub_compose config --services | grep -Fxq caddy; then
+if licensehub_manage_caddy; then
   caddy_present=1
 fi
 
@@ -48,21 +48,13 @@ fi
 if [[ "$caddy_present" == "1" ]]; then
   licensehub_compose stop caddy >/dev/null 2>&1 || true
 fi
-licensehub_compose up -d --build postgres server
+licensehub_compose up -d --build postgres redis server
 
-healthy=0
-for _ in {1..60}; do
-  if licensehub_compose exec -T server curl -fsS http://127.0.0.1:9000/health >/dev/null 2>&1; then
-    healthy=1
-    break
-  fi
-  sleep 2
-done
-[[ "$healthy" == "1" ]] || {
+if ! licensehub_wait_for_health server; then
   licensehub_compose logs --tail 100 server >&2 || true
   echo "server failed to become healthy" >&2
   exit 1
-}
+fi
 
 status_body="$(licensehub_compose exec -T server curl -fsS \
   http://127.0.0.1:9000/api/v1/setup/status)"

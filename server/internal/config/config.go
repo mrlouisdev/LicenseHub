@@ -4,6 +4,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -100,21 +102,57 @@ type Config struct {
 
 func Load() (*Config, error) {
 	_ = godotenv.Load()
+	databaseURL, err := envOrFile("DATABASE_URL")
+	if err != nil {
+		return nil, err
+	}
+	jwtSecret, err := envOrFile("JWT_SECRET")
+	if err != nil {
+		return nil, err
+	}
+	licenseSigningKey, err := envOrFile("LICENSE_SIGNING_KEY")
+	if err != nil {
+		return nil, err
+	}
+	stripeSecretKey, err := envOrFile("STRIPE_SECRET_KEY")
+	if err != nil {
+		return nil, err
+	}
+	metricsToken, err := envOrFile("METRICS_TOKEN")
+	if err != nil {
+		return nil, err
+	}
+	smtpPassword, err := envOrFile("SMTP_PASSWORD")
+	if err != nil {
+		return nil, err
+	}
+	storageAccessKey, err := envOrFile("STORAGE_ACCESS_KEY")
+	if err != nil {
+		return nil, err
+	}
+	storageSecretKey, err := envOrFile("STORAGE_SECRET_KEY")
+	if err != nil {
+		return nil, err
+	}
+	releaseKeyEncryptionKey, err := envOrFile("RELEASE_KEY_ENCRYPTION_KEY")
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &Config{
 		Port:        envOr("PORT", "9000"),
 		Environment: envOr("ENVIRONMENT", "development"),
 		BaseURL:     envOr("BASE_URL", "http://localhost:9000"),
 
-		DatabaseURL: os.Getenv("DATABASE_URL"),
+		DatabaseURL: databaseURL,
 
-		JWTSecret:                 os.Getenv("JWT_SECRET"),
-		LicenseSigningKey:         os.Getenv("LICENSE_SIGNING_KEY"),
+		JWTSecret:                 jwtSecret,
+		LicenseSigningKey:         licenseSigningKey,
 		LicenseSigningKeyID:       envOr("LICENSE_SIGNING_KEY_ID", "v1"),
 		LicenseLeaseTTL:           envOr("LICENSE_LEASE_TTL", "72h"),
 		LicenseRetainedPublicKeys: envOr("LICENSE_RETAINED_PUBLIC_KEYS", "{}"),
 
-		StripeSecretKey:     os.Getenv("STRIPE_SECRET_KEY"),
+		StripeSecretKey:     stripeSecretKey,
 		StripeWebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
 	}
 
@@ -122,12 +160,12 @@ func Load() (*Config, error) {
 	cfg.StripeLivemode = deriveLivemode(envVal, envSet, cfg.StripeSecretKey)
 
 	cfg.RedisURL = os.Getenv("REDIS_URL")
-	cfg.MetricsToken = os.Getenv("METRICS_TOKEN")
+	cfg.MetricsToken = metricsToken
 
 	cfg.SMTPHost = os.Getenv("SMTP_HOST")
 	cfg.SMTPPort = envOr("SMTP_PORT", "587")
 	cfg.SMTPUsername = os.Getenv("SMTP_USERNAME")
-	cfg.SMTPPassword = os.Getenv("SMTP_PASSWORD")
+	cfg.SMTPPassword = smtpPassword
 	cfg.SMTPFrom = os.Getenv("SMTP_FROM")
 
 	cfg.RateLimitAPI = envIntOr("RATE_LIMIT_API", 60)
@@ -150,13 +188,13 @@ func Load() (*Config, error) {
 	cfg.StorageEndpoint = os.Getenv("STORAGE_ENDPOINT")
 	cfg.StorageRegion = envOr("STORAGE_REGION", "auto")
 	cfg.StorageBucket = os.Getenv("STORAGE_BUCKET")
-	cfg.StorageAccessKey = os.Getenv("STORAGE_ACCESS_KEY")
-	cfg.StorageSecretKey = os.Getenv("STORAGE_SECRET_KEY")
+	cfg.StorageAccessKey = storageAccessKey
+	cfg.StorageSecretKey = storageSecretKey
 	cfg.StoragePublicURL = os.Getenv("STORAGE_PUBLIC_URL")
 	cfg.StorageForcePathStyle = strings.EqualFold(os.Getenv("STORAGE_FORCE_PATH_STYLE"), "true")
 	cfg.StorageUploadTTL = envOr("STORAGE_UPLOAD_TTL", "1h")
 	cfg.StorageDownloadTTL = envOr("STORAGE_DOWNLOAD_TTL", "10m")
-	cfg.ReleaseKeyEncryptionKey = os.Getenv("RELEASE_KEY_ENCRYPTION_KEY")
+	cfg.ReleaseKeyEncryptionKey = releaseKeyEncryptionKey
 	cfg.MaxReleaseSignSize = int64(envIntOr("MAX_RELEASE_SIGN_SIZE_MB", 500)) * 1024 * 1024
 
 	if cfg.DatabaseURL == "" {
@@ -289,6 +327,12 @@ func (c *Config) ValidateSecurityDefaults() (warnings []string, fatal []string) 
 		if len(c.AdminEmails) == 0 {
 			warnings = append(warnings, "SECURITY: ADMIN_EMAILS is empty — no one can access the admin panel")
 		}
+		if strings.TrimSpace(c.RedisURL) == "" {
+			fatal = append(fatal, "REDIS_URL is required in production for persistent distributed abuse controls")
+		}
+		if strings.TrimSpace(c.SMTPHost) == "" || strings.TrimSpace(c.SMTPFrom) == "" {
+			fatal = append(fatal, "SMTP_HOST and SMTP_FROM are required in production so OTP authentication cannot fall back or fail silently")
+		}
 	}
 
 	if c.IsDevLoginAllowed() {
@@ -356,6 +400,40 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// envOrFile accepts either KEY or KEY_FILE. The file variant keeps values out
+// of container metadata while remaining compatible with direct local config.
+func envOrFile(key string) (string, error) {
+	value, valueSet := os.LookupEnv(key)
+	path, fileSet := os.LookupEnv(key + "_FILE")
+	if valueSet && fileSet {
+		return "", fmt.Errorf("%s and %s_FILE are mutually exclusive", key, key)
+	}
+	if !fileSet {
+		return value, nil
+	}
+	if path == "" || !filepath.IsAbs(path) {
+		return "", fmt.Errorf("%s_FILE must be an absolute path", key)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s_FILE: %w", key, err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("%s_FILE must reference a regular non-symlink file", key)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o022 != 0 {
+		return "", fmt.Errorf("%s_FILE must not be group/world writable", key)
+	}
+	if info.Size() > 64*1024 {
+		return "", fmt.Errorf("%s_FILE exceeds 64 KiB", key)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s_FILE: %w", key, err)
+	}
+	return strings.TrimRight(string(contents), "\r\n"), nil
 }
 
 func envIntOr(key string, fallback int) int {
