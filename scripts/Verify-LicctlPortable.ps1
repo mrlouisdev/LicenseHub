@@ -9,6 +9,21 @@ if (-not (Test-Path -LiteralPath $archivePath -PathType Leaf)) { throw "Portable
 $temporary = Join-Path ([IO.Path]::GetTempPath()) ('licctl-portable-verify-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $temporary | Out-Null
 try {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [IO.Compression.ZipFile]::OpenRead($archivePath)
+    try {
+        $archiveFiles = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach ($entry in $zip.Entries) {
+            $entryName = $entry.FullName.Replace('\', '/')
+            if ($entryName.EndsWith('/')) { continue }
+            $segments = @($entryName.Split('/') | Where-Object { $_ -ne '' })
+            if ([IO.Path]::IsPathRooted($entryName) -or $entryName.Contains('\') -or
+                $segments.Count -eq 0 -or @($segments | Where-Object { $_ -in @('.', '..') }).Count) {
+                throw "Unsafe archive entry: $entryName"
+            }
+            if (-not $archiveFiles.Add($entryName)) { throw "Duplicate or case-colliding archive entry: $entryName" }
+        }
+    } finally { $zip.Dispose() }
     Expand-Archive -LiteralPath $archivePath -DestinationPath $temporary
     $manifestPath = Join-Path $temporary 'portable-manifest.json'
     $executable = Join-Path $temporary 'licctl.exe'
@@ -17,7 +32,13 @@ try {
     }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     if ($manifest.format_version -ne 1 -or $manifest.runtime -ne 'win-x64') { throw 'Unsupported portable manifest' }
+    $manifestFiles = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $manifestFilesIgnoreCase = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($file in $manifest.files) {
+        $manifestRelative = ([string]$file.path).Replace('\', '/')
+        if (-not $manifestFiles.Add($manifestRelative) -or -not $manifestFilesIgnoreCase.Add($manifestRelative)) {
+            throw "Duplicate or case-colliding manifest path: $manifestRelative"
+        }
         $path = [IO.Path]::GetFullPath((Join-Path $temporary ([string]$file.path)))
         $prefix = $temporary.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
         if (-not $path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { throw "Manifest path escapes package: $($file.path)" }
@@ -26,6 +47,15 @@ try {
         if ($item.Length -ne [long]$file.bytes) { throw "Size mismatch: $($file.path)" }
         $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($hash -ne ([string]$file.sha256).ToLowerInvariant()) { throw "Hash mismatch: $($file.path)" }
+    }
+    $actualFiles = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($actual in Get-ChildItem -LiteralPath $temporary -Recurse -File | Where-Object FullName -ne $manifestPath) {
+        [void]$actualFiles.Add([IO.Path]::GetRelativePath($temporary, $actual.FullName).Replace('\', '/'))
+    }
+    if (-not $manifestFiles.SetEquals($actualFiles)) {
+        $missing = @($manifestFiles | Where-Object { -not $actualFiles.Contains($_) })
+        $extra = @($actualFiles | Where-Object { -not $manifestFiles.Contains($_) })
+        throw "Portable file set differs from manifest; missing=$($missing -join ','); extra=$($extra -join ',')"
     }
 
     $kit = Join-Path $temporary 'generated-kit'

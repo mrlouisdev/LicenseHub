@@ -1,0 +1,72 @@
+name: Portable client
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portable-client-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 8.0.424
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.14.1
+          cache: npm
+          cache-dependency-path: bindings/node/package-lock.json
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: rustup toolchain install 1.98.0 --profile minimal --component clippy --component rustfmt
+      - name: Install Node binding dependencies
+        run: npm ci --prefix bindings/node
+      - name: Build native core
+        working-directory: core
+        run: cargo build --locked --workspace --release
+      - name: Verify committed native payload is current
+        shell: pwsh
+        run: ./scripts/Sync-NativePayload.ps1 -VerifyClean
+      - name: Test Rust core on Windows
+        working-directory: core
+        run: cargo test --locked --workspace
+      - name: Build licctl
+        run: dotnet build cli/licctl/licctl.csproj -c Release --nologo
+      - name: Run four-stack integration
+        shell: pwsh
+        run: ./tests/integration/Run-LicctlIntegration.ps1
+      - name: Build and verify portable distribution
+        shell: pwsh
+        run: |
+          ./scripts/Build-LicctlPortable.ps1 -OutputRoot ./artifacts/ci
+          ./scripts/Verify-LicctlPortable.ps1 -Archive ./artifacts/ci/licctl-portable-win-x64.zip
+          Get-FileHash ./artifacts/ci/licctl-portable-win-x64.zip -Algorithm SHA256
+      - name: Upload verified portable distribution
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: licctl-portable-win-x64
+          path: artifacts/ci/licctl-portable-win-x64.zip
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

@@ -1,5 +1,8 @@
 # LicenseHub
 
+[![CI](https://github.com/mrlouisdev/LicenseHub/actions/workflows/ci.yml/badge.svg)](https://github.com/mrlouisdev/LicenseHub/actions/workflows/ci.yml)
+[![Portable client](https://github.com/mrlouisdev/LicenseHub/actions/workflows/client.yml/badge.svg)](https://github.com/mrlouisdev/LicenseHub/actions/workflows/client.yml)
+
 LicenseHub is a reusable licensing platform for multiple desktop applications. A
 single VPS manages products, licenses and device activations; applications use a
 shared client contract and verify short-lived Ed25519 leases offline.
@@ -13,6 +16,7 @@ shared client contract and verify short-lived Ed25519 leases offline.
 - `deploy/` — production Docker Compose and Caddy configuration.
 - `scripts/` — backup, restore and VPS migration helpers.
 - `docs/` — threat model and operations runbooks.
+- `.github/workflows/` — pinned CI, portable-client and history-scan gates.
 
 ## Install the management app
 

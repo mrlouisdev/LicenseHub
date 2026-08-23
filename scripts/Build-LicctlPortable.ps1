@@ -61,6 +61,14 @@ Copy-Item -LiteralPath (Join-Path $workspace 'bindings\node\package-lock.json') 
 New-Item -ItemType Directory -Path (Join-Path $stage 'core\include'), (Join-Path $stage 'core\target\release') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $workspace 'core\include\license_core.h') -Destination (Join-Path $stage 'core\include\license_core.h')
 Copy-Item -LiteralPath $native -Destination (Join-Path $stage 'core\target\release\license_core.dll')
+# Never let a previously committed adapter payload override the DLL built for this release.
+foreach ($adapterNative in @(
+    (Join-Path $stage 'bindings\node\native\win-x64\license_core.dll'),
+    (Join-Path $stage 'bindings\python\licensehub_licensing\_native\win-x64\license_core.dll')
+)) {
+    New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($adapterNative)) -Force | Out-Null
+    Copy-Item -LiteralPath $native -Destination $adapterNative -Force
+}
 if (Test-Path -LiteralPath $importLibrary) {
     Copy-Item -LiteralPath $importLibrary -Destination (Join-Path $stage 'core\target\release\license_core.dll.lib')
 }

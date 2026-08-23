@@ -1,0 +1,133 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Go backend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_USER: licensehub
+          POSTGRES_DB: licensehub_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U licensehub -d licensehub_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:8-alpine@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://licensehub@127.0.0.1:5432/licensehub_test?sslmode=disable
+      TEST_REDIS_URL: redis://127.0.0.1:6379/0
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Test backend
+        working-directory: server
+        run: go test -count=1 -p 1 -timeout 12m ./...
+      - name: Vet backend
+        working-directory: server
+        run: go vet ./...
+
+  rust:
+    name: Rust core
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.0 --profile minimal --component clippy --component rustfmt
+      - name: Check formatting
+        working-directory: core
+        run: cargo fmt --all -- --check
+      - name: Lint core
+        working-directory: core
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Test core
+        working-directory: core
+        run: cargo test --locked --workspace
+
+  web:
+    name: Admin web
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+      - name: Install locked dependencies
+        working-directory: server/web
+        run: bun install --frozen-lockfile
+      - name: Lint web
+        working-directory: server/web
+        run: bun run lint
+      - name: Type-check web
+        working-directory: server/web
+        run: bun run typecheck
+      - name: Build web
+        working-directory: server/web
+        run: bun run build
+
+  deployment:
+    name: Deployment contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check shell syntax
+        run: bash -n deploy/*.sh tests/deployment/*.sh
+      - name: Prove restore rollback
+        run: bash tests/deployment/Test-RestoreRollback.sh
+      - name: Validate standalone Compose
+        run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config --quiet
+      - name: Validate integrated Compose
+        env:
+          EXTERNAL_EDGE_NETWORK: licensehub-ci-edge
+        run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.integrated.yml config --quiet
+      - name: Verify historical release manifest
+        shell: pwsh
+        run: ./scripts/Verify-Release.ps1
