@@ -1,0 +1,11 @@
+# Reviewed deterministic fixtures and type aliases; fingerprints keep the allowlist commit- and line-scoped.
+e8293daee1e82a362f121bda951d233882f00e9a:server/internal/config/config_test.go:generic-api-key:197
+4b9a5c2c6dc521cb776e0d2f39f9615f421e66b3:server/internal/config/config_test.go:generic-api-key:142
+4b9a5c2c6dc521cb776e0d2f39f9615f421e66b3:server/internal/config/config_test.go:generic-api-key:160
+7ce6208ed227ff82e0c3ee70b5ceabce7c38e593:server/internal/license/keygen_test.go:generic-api-key:43
+7ce6208ed227ff82e0c3ee70b5ceabce7c38e593:server/internal/config/config_test.go:generic-api-key:75
+7ce6208ed227ff82e0c3ee70b5ceabce7c38e593:server/internal/config/config_test.go:generic-api-key:98
+7ce6208ed227ff82e0c3ee70b5ceabce7c38e593:server/internal/config/config_test.go:generic-api-key:111
+7ce6208ed227ff82e0c3ee70b5ceabce7c38e593:server/internal/config/config_test.go:generic-api-key:124
+7ce6208ed227ff82e0c3ee70b5ceabce7c38e593:server/internal/config/config_test.go:generic-api-key:184
+7ce6208ed227ff82e0c3ee70b5ceabce7c38e593:server/internal/service/license.go:generic-api-key:94
