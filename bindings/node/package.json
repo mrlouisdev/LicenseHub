@@ -8,5 +8,5 @@
   "files": ["src", "native"],
   "scripts": { "test": "node --test test/*.test.js", "pack:check": "npm pack --dry-run" },
   "engines": { "node": ">=20" },
-  "dependencies": { "koffi": "^2.14.1" }
+  "dependencies": { "koffi": "^3.1.6" }
 }
