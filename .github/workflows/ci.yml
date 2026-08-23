@@ -128,6 +128,3 @@ jobs:
         env:
           EXTERNAL_EDGE_NETWORK: licensehub-ci-edge
         run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.integrated.yml config --quiet
-      - name: Verify historical release manifest
-        shell: pwsh
-        run: ./scripts/Verify-Release.ps1

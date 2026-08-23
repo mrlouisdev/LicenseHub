@@ -4,9 +4,14 @@ use std::{
     ffi::{c_char, CStr},
     path::PathBuf,
     ptr,
+    sync::{Mutex, OnceLock},
+};
+
+#[cfg(windows)]
+use std::{
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, Mutex, OnceLock,
+        Arc,
     },
     time::Duration,
 };
@@ -15,8 +20,12 @@ use serde::Deserialize;
 
 use crate::{
     client::{ClientConfig, LicenseClient},
-    clock::SystemClock,
     error::{LicenseError, Result},
+};
+
+#[cfg(windows)]
+use crate::{
+    clock::SystemClock,
     store::{FileSecureStore, SecureStore},
     transport::HttpTransport,
 };
@@ -24,6 +33,7 @@ use crate::{
 pub const ABI_VERSION: u32 = 1;
 type Handle = u64;
 
+#[cfg(windows)]
 static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
 static CLIENTS: OnceLock<Mutex<HashMap<Handle, LicenseClient>>> = OnceLock::new();
 thread_local! { static LAST_ERROR: RefCell<String> = const { RefCell::new(String::new()) }; }
@@ -125,34 +135,41 @@ pub unsafe extern "C" fn license_initialize(
                 "request_timeout_seconds must be between 1 and 120".into(),
             ));
         }
-        let transport = Arc::new(HttpTransport::new(
-            &config.server_url,
-            Duration::from_secs(config.request_timeout_seconds),
-            config.allow_insecure_localhost,
-        )?);
         #[cfg(windows)]
-        let store: Arc<dyn SecureStore> = Arc::new(FileSecureStore::new(
-            config.cache_dir,
-            crate::store::DpapiProtector,
-        )?);
-        #[cfg(not(windows))]
-        let store: Arc<dyn SecureStore> = {
-            let _ = config.cache_dir;
-            return Err(LicenseError::Configuration(
-                "default secure store requires Windows DPAPI; inject SecureStore through the Rust API".into(),
-            ));
-        };
-        let client =
-            LicenseClient::initialize(config.client, transport, store, Arc::new(SystemClock))?;
-        let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
-        clients()
-            .lock()
-            .map_err(|_| LicenseError::Internal("client registry lock poisoned".into()))?
-            .insert(handle, client);
-        unsafe {
-            *out_handle = handle;
+        {
+            let transport = Arc::new(HttpTransport::new(
+                &config.server_url,
+                Duration::from_secs(config.request_timeout_seconds),
+                config.allow_insecure_localhost,
+            )?);
+            let store: Arc<dyn SecureStore> = Arc::new(FileSecureStore::new(
+                config.cache_dir,
+                crate::store::DpapiProtector,
+            )?);
+            let client =
+                LicenseClient::initialize(config.client, transport, store, Arc::new(SystemClock))?;
+            let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
+            clients()
+                .lock()
+                .map_err(|_| LicenseError::Internal("client registry lock poisoned".into()))?
+                .insert(handle, client);
+            unsafe {
+                *out_handle = handle;
+            }
+            Ok(())
         }
-        Ok(())
+        #[cfg(not(windows))]
+        {
+            let _unsupported_config = (
+                config.client,
+                config.server_url,
+                config.cache_dir,
+                config.allow_insecure_localhost,
+            );
+            Err(LicenseError::Configuration(
+                "default secure store requires Windows DPAPI; inject SecureStore through the Rust API".into(),
+            ))
+        }
     })();
     match result {
         Ok(()) => ok(),

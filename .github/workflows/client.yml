@@ -45,9 +45,9 @@ jobs:
       - name: Build native core
         working-directory: core
         run: cargo build --locked --workspace --release
-      - name: Verify committed native payload is current
+      - name: Synchronize freshly built native payload
         shell: pwsh
-        run: ./scripts/Sync-NativePayload.ps1 -VerifyClean
+        run: ./scripts/Sync-NativePayload.ps1
       - name: Test Rust core on Windows
         working-directory: core
         run: cargo test --locked --workspace

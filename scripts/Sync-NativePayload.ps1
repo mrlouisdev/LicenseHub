@@ -10,9 +10,12 @@ $targets = @(
     (Join-Path $workspace 'bindings\node\native\win-x64\license_core.dll'),
     (Join-Path $workspace 'bindings\python\licensehub_licensing\_native\win-x64\license_core.dll')
 )
+$hash = (Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash.ToLowerInvariant()
 foreach ($target in $targets) {
     New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($target)) -Force | Out-Null
     Copy-Item -LiteralPath $native -Destination $target -Force
+    $targetHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($targetHash -ne $hash) { throw "Native payload hash mismatch after copy: $target" }
 }
 
 if ($VerifyClean) {
@@ -20,5 +23,4 @@ if ($VerifyClean) {
     if ($LASTEXITCODE -ne 0) { throw 'Committed native adapter payload differs from the pinned-toolchain build' }
 }
 
-$hash = (Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Output "NATIVE_PAYLOAD_SYNCED SHA256 $hash TARGETS $($targets.Count)"

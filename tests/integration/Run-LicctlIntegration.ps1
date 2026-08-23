@@ -35,11 +35,13 @@ try {
       while ($listener.IsListening) {
         $context = $listener.GetContext()
         $path = $context.Request.Url.AbsolutePath
+        $shutdown = $path -eq '/__shutdown'
         $body = switch ($path) {
           '/v1/client/public-keys' { '{"keys":{"fixture":"' + $key + '"}}' }
           '/v1/client/activate' { '{"lease":"fixture-lease","entitlements":["fixture.pro"]}' }
           '/v1/client/refresh' { '{"lease":"fixture-refreshed","entitlements":["fixture.pro"]}' }
           '/v1/client/deactivate' { '{"ok":true}' }
+          '/__shutdown' { '{"ok":true}' }
           default { $context.Response.StatusCode = 404; '{"error":"not found"}' }
         }
         $bytes = [Text.Encoding]::UTF8.GetBytes($body)
@@ -47,6 +49,7 @@ try {
         $context.Response.ContentLength64 = $bytes.Length
         $context.Response.OutputStream.Write($bytes,0,$bytes.Length)
         $context.Response.Close()
+        if ($shutdown) { break }
       }
     } finally { $listener.Close() }
   }
@@ -83,6 +86,10 @@ try {
   }
   'PASS all four licctl integration fixtures'
 } finally {
-  if ($null -ne $mock) { Stop-Job $mock -ErrorAction SilentlyContinue; Remove-Job $mock -Force -ErrorAction SilentlyContinue }
+  if ($null -ne $mock) {
+    try { Invoke-WebRequest "http://127.0.0.1:$port/__shutdown" -TimeoutSec 2 | Out-Null } catch {}
+    Wait-Job $mock -Timeout 5 -ErrorAction SilentlyContinue | Out-Null
+    Remove-Job $mock -Force -ErrorAction SilentlyContinue
+  }
   if (-not $KeepTemporary -and (Test-Path $temporary)) { Remove-Item -LiteralPath $temporary -Recurse -Force }
 }
