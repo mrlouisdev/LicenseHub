@@ -8,7 +8,7 @@ has been deployed to production.
 ## Passed locally
 
 - Go server: unit tests, vet and final Windows build.
-- Rust core: format, clippy with warnings denied, 13 tests and release DLL.
+- Rust core: format, clippy with warnings denied, 14 tests and release DLL.
 - Console: ESLint, 12 Vitest tests, web build and Tauri/NSIS build.
 - Browser QA: first-run connection screen, explicit Demo mode, navigation,
   remote plain-HTTP rejection and zero browser warnings/errors.
