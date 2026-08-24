@@ -17,7 +17,7 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-2022
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,7 +37,9 @@ jobs:
         with:
           node-version: 24.14.1
           cache: npm
-          cache-dependency-path: bindings/node/package-lock.json
+          cache-dependency-path: |
+            bindings/node/package-lock.json
+            console/package-lock.json
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -47,6 +49,15 @@ jobs:
         run: rustup toolchain install 1.98.0 --profile minimal --component clippy --component rustfmt
       - name: Install Node binding dependencies
         run: npm ci --prefix bindings/node
+      - name: Install and audit console dependencies
+        run: |
+          npm ci --prefix console
+          npm audit --prefix console --audit-level=high
+      - name: Verify operator console
+        run: |
+          npm run lint --prefix console
+          npm run test --prefix console
+          npm run build --prefix console
       - name: Build native core
         working-directory: core
         run: cargo build --locked --workspace --release
@@ -56,6 +67,8 @@ jobs:
       - name: Test Rust core on Windows
         working-directory: core
         run: cargo test --locked --workspace
+      - name: Build Windows operator console
+        run: npm run desktop:build --prefix console
       - name: Build licctl
         run: dotnet build cli/licctl/licctl.csproj -c Release --nologo
       - name: Run four-stack integration
