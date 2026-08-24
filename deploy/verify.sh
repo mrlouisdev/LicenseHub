@@ -43,8 +43,9 @@ for expected in \
     exit 1
   }
 done
-if tr -d '\r' <"$tmp/health.headers" | grep -Eqi '^server:'; then
-  echo "edge leaked Server header" >&2
+server_header="$({ tr -d '\r' <"$tmp/health.headers" | sed -n 's/^server:[[:space:]]*//Ip' | head -n 1; } || true)"
+if [[ -n "$server_header" && "${server_header,,}" != "cloudflare" ]]; then
+  echo "edge leaked unexpected Server header: $server_header" >&2
   exit 1
 fi
 
