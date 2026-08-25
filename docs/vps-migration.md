@@ -20,8 +20,11 @@ identity, encryption configuration, product IDs and license records.
    new installation; migrations must reuse the exact source configuration
    because changing signing/encryption keys breaks clients and encrypted rows.
 5. From `deploy/`, run `./deploy.sh`. It makes a pre-deploy database backup,
-   builds the staged server context and refuses to expose an uninitialized
-   installation. Use `./bootstrap.sh <admin-email>` only for first install.
+   atomically materializes mode-0400 container-readable secret files, builds
+   the staged server context and refuses to expose an uninitialized
+   installation. Run it as root so the server and PostgreSQL secret files get
+   their configured container UID ownership. Use `./bootstrap.sh <admin-email>`
+   only for first install.
    When an existing proxy owns 80/443, select
    `docker-compose.integrated.yml`, set `EXTERNAL_EDGE_NETWORK`, and cut over
    only the intended virtual-host block after private health passes.

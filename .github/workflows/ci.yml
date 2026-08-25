@@ -116,6 +116,8 @@ jobs:
     name: Deployment contracts
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      LICENSEHUB_ENV_FILE: deploy/.env.example
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -123,11 +125,20 @@ jobs:
           persist-credentials: false
       - name: Check shell syntax
         run: bash -n deploy/*.sh tests/deployment/*.sh
+      - name: Prove file-backed secret materialization
+        run: bash tests/deployment/Test-SecretMaterialization.sh
       - name: Prove restore rollback
         run: bash tests/deployment/Test-RestoreRollback.sh
       - name: Validate standalone Compose
-        run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config --quiet
+        run: |
+          source deploy/lib.sh
+          licensehub_materialize_secrets
+          licensehub_compose config --quiet
       - name: Validate integrated Compose
         env:
           EXTERNAL_EDGE_NETWORK: licensehub-ci-edge
-        run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.integrated.yml config --quiet
+          LICENSEHUB_COMPOSE_FILE: deploy/docker-compose.integrated.yml
+        run: |
+          source deploy/lib.sh
+          licensehub_materialize_secrets
+          licensehub_compose config --quiet

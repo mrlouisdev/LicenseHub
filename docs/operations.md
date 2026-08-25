@@ -8,8 +8,11 @@
 3. On the VPS run `deploy/new-env.sh` once. It creates independent PostgreSQL,
    JWT, Ed25519, metrics and encryption values without printing them. Keep the
    resulting file mode `0600`.
-4. Run `chmod 700 deploy/*.sh` and validate Compose; confirm PostgreSQL has no
-   published host port.
+4. Run `chmod 700 deploy/*.sh`. All deployment entrypoints materialize Docker
+   secret source files beside the protected environment file (default
+   `<env-directory>/secrets`) with a mode-0700 directory, mode-0400 files and
+   container-specific ownership before validating Compose. Confirm PostgreSQL
+   has no published host port.
 5. Run `deploy/bootstrap.sh <admin-email>`. It initializes the first owner
    through the container-local interface before Caddy starts, removing the
    public first-owner race window.
@@ -36,6 +39,11 @@ contains Caddy, so it stops/restarts only services it owns.
 
 Never commit local environment files, database dumps or server key material.
 Keep server configuration in a dedicated secrets manager and test recovery.
+Do not invoke raw `docker compose` for production: use the checked scripts, or
+source `deploy/lib.sh` and run `licensehub_require_runtime` first so the
+file-backed secrets exist. Root is required for the production ownership step;
+the application files are owned by UID 10001 and the PostgreSQL password by
+UID 70 unless the matching `LICENSEHUB_*_UID` override is supplied.
 
 ## Metrics and edge isolation
 

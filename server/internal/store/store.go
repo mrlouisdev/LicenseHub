@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -112,7 +113,7 @@ func (s *Store) RunMigrations(dir string) error {
 
 		// Already applied — verify checksum hasn't changed
 		if existingCS, ok := checksumMap[entry.Name()]; ok {
-			if existingCS != "" && existingCS != checksum {
+			if existingCS != "" && !migrationChecksumMatches(entry.Name(), existingCS, data) {
 				slog.Error("migration file modified after apply",
 					"file", entry.Name(), "expected", existingCS, "actual", checksum)
 				return fmt.Errorf("migration %s has been modified (checksum mismatch: %s != %s). "+
@@ -181,8 +182,53 @@ func (s *Store) RunMigrations(dir string) error {
 }
 
 func checksumBytes(data []byte) string {
+	// Git and release tooling may materialize the same SQL with LF or CRLF.
+	// Hash a canonical representation so a packaging-only line-ending change
+	// cannot brick startup, while every SQL byte other than CRLF remains covered.
+	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 	h := sha256.Sum256(data)
 	return hex.EncodeToString(h[:8]) // short 16-char checksum
+}
+
+// These are the exact raw-byte checksums recorded by the pre-canonical
+// migration runner for the first production deployment. They are accepted
+// only when the current migration also has its known canonical checksum.
+// This preserves tamper detection while allowing that deployment to move
+// from its mixed CRLF/LF Windows checkout to an LF release archive.
+var legacyMigrationChecksums = map[string]struct {
+	legacy    string
+	canonical string
+}{
+	"20260320_init.up.sql":                      {"ebf87c134e6a5f35", "d72f3bdc0db1dc10"},
+	"20260321_saas_extension.up.sql":            {"61f297b7da105988", "568d637da28742aa"},
+	"20260322_email_queue.up.sql":               {"281d6d2bd38346ec", "79ca56dca3f1a416"},
+	"20260322_floating_addons.up.sql":           {"7515ca5554165fc3", "33d4ea4bdf820806"},
+	"20260322_license_key_hash.up.sql":          {"375b68aa2b70347b", "1c8132a4c77f8b26"},
+	"20260322_notifications.up.sql":             {"e526df604bff6763", "c5389e6591cb4406"},
+	"20260322_processed_events.up.sql":          {"79756d0e99206ce5", "535b2cd3df9d2ed3"},
+	"20260322_refresh_tokens.up.sql":            {"57eba02a323e6354", "553435a9b32c9d91"},
+	"20260322_settings.up.sql":                  {"498fabd0e1462a33", "748e442a92ff0333"},
+	"20260324_fix_subscription_status.up.sql":   {"847147b694031839", "70596ef1d1d024d5"},
+	"20260325_user_roles.up.sql":                {"bb8ad593bcc1e01d", "140d392c01827fab"},
+	"20260401_otp_codes.up.sql":                 {"8161538a196f7bed", "c07058e933817ee9"},
+	"20260401_plan_checkout_id.up.sql":          {"7b379dcba834fb2d", "812eef0fda23b137"},
+	"20260510_releases.up.sql":                  {"4ca24835ef4fb365", "5b30d142cdfa5503"},
+	"20260511_release_signing_keys.up.sql":      {"45db6e9ca3bd86cb", "151f133ce3a8dcbc"},
+	"20260512_release_signing_key_id.up.sql":    {"e8257b801eafc812", "1d02543c19c394bd"},
+	"20260513_tighten_signing_key_check.up.sql": {"a0b615b7eecac59d", "77399dfd1b557956"},
+	"20260514_license_key_encrypted.up.sql":     {"00c73cf45b152486", "64fae6d03640068c"},
+	"20260515_release_bundle_refactor.up.sql":   {"96cbcd346b38b1fd", "2b39e478a48167d3"},
+	"20260516_post_bundle_evolution.up.sql":     {"ef074ea637de6d55", "7dee5a0bde02f38a"},
+	"20260517_post_release_evolution.up.sql":    {"656624a1bc239d15", "7e120d225086d0f4"},
+}
+
+func migrationChecksumMatches(filename, existing string, data []byte) bool {
+	canonical := checksumBytes(data)
+	if existing == canonical {
+		return true
+	}
+	known, ok := legacyMigrationChecksums[filename]
+	return ok && existing == known.legacy && canonical == known.canonical
 }
 
 type AppliedMigration struct {
