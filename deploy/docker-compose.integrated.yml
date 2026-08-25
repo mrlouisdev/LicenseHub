@@ -134,7 +134,8 @@ services:
     restart: unless-stopped
     init: true
     read_only: true
-    tmpfs: [/tmp:size=32m,mode=1777]
+    tmpfs:
+      - /tmp:size=32m,mode=1777
     pids_limit: 100
     mem_limit: 256m
     cpus: 0.5
@@ -163,20 +164,20 @@ networks:
 
 secrets:
   postgres_password:
-    environment: POSTGRES_PASSWORD
+    file: ${LICENSEHUB_SECRETS_DIR:?materialize deployment secrets}/postgres_password
   database_url:
-    environment: DATABASE_URL
+    file: ${LICENSEHUB_SECRETS_DIR:?materialize deployment secrets}/database_url
   jwt_secret:
-    environment: JWT_SECRET
+    file: ${LICENSEHUB_SECRETS_DIR:?materialize deployment secrets}/jwt_secret
   license_signing_key:
-    environment: LICENSE_SIGNING_KEY
+    file: ${LICENSEHUB_SECRETS_DIR:?materialize deployment secrets}/license_signing_key
   release_key_encryption_key:
-    environment: RELEASE_KEY_ENCRYPTION_KEY
+    file: ${LICENSEHUB_SECRETS_DIR:?materialize deployment secrets}/release_key_encryption_key
   metrics_token:
-    environment: METRICS_TOKEN
+    file: ${LICENSEHUB_SECRETS_DIR:?materialize deployment secrets}/metrics_token
   smtp_password:
-    environment: SMTP_PASSWORD
+    file: ${LICENSEHUB_SECRETS_DIR:?materialize deployment secrets}/smtp_password
   storage_access_key:
-    environment: STORAGE_ACCESS_KEY
+    file: ${LICENSEHUB_SECRETS_DIR:?materialize deployment secrets}/storage_access_key
   storage_secret_key:
-    environment: STORAGE_SECRET_KEY
+    file: ${LICENSEHUB_SECRETS_DIR:?materialize deployment secrets}/storage_secret_key

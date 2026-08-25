@@ -20,7 +20,8 @@ has been deployed to production.
 - Client contracts reject oversized/ambiguous JSON, HTTP responses and leases.
 - Metrics are token-protected in the server and blocked at the public Caddy edge.
 - Compose configuration validates with read-only app filesystems, dropped
-  capabilities, resource limits and rotated JSON logs.
+  capabilities, resource limits, rotated JSON logs and file-backed secrets that
+  remain readable by the non-root application and PostgreSQL users.
 - Linux VPS scripts cover secret generation, non-public bootstrap, pre-deploy
   backup, transactional restore and public edge verification.
 

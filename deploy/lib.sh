@@ -5,7 +5,8 @@
 LICENSEHUB_DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LICENSEHUB_COMPOSE_FILE="${LICENSEHUB_COMPOSE_FILE:-${COMPOSE_FILE:-$LICENSEHUB_DEPLOY_DIR/docker-compose.yml}}"
 LICENSEHUB_ENV_FILE="${LICENSEHUB_ENV_FILE:-${ENV_FILE:-$LICENSEHUB_DEPLOY_DIR/.env}}"
-export LICENSEHUB_COMPOSE_FILE LICENSEHUB_ENV_FILE
+LICENSEHUB_SECRETS_DIR="${LICENSEHUB_SECRETS_DIR:-$(dirname "$LICENSEHUB_ENV_FILE")/secrets}"
+export LICENSEHUB_COMPOSE_FILE LICENSEHUB_ENV_FILE LICENSEHUB_SECRETS_DIR
 
 licensehub_require_runtime() {
   command -v docker >/dev/null 2>&1 || {
@@ -25,6 +26,7 @@ licensehub_require_runtime() {
     return 1
   }
   licensehub_require_private_file "$LICENSEHUB_ENV_FILE"
+  licensehub_materialize_secrets
   licensehub_validate_image_refs
 }
 
@@ -48,6 +50,42 @@ licensehub_env_get() {
     index($0, key "=") == 1 { sub(/^[^=]*=/, ""); print; found=1; exit }
     END { if (!found) exit 1 }
   ' "$LICENSEHUB_ENV_FILE"
+}
+
+licensehub_materialize_secret() {
+  local name="$1" key="$2" owner="$3" value tmp
+  value="$(licensehub_env_get "$key" 2>/dev/null || true)"
+  tmp="$(mktemp "$LICENSEHUB_SECRETS_DIR/.${name}.XXXXXX")"
+  printf '%s' "$value" >"$tmp"
+  chmod 0400 "$tmp"
+  if [[ "$(id -u)" == "0" ]]; then
+    chown "$owner:$owner" "$tmp"
+  fi
+  mv -f "$tmp" "$LICENSEHUB_SECRETS_DIR/$name"
+}
+
+licensehub_materialize_secrets() {
+  local app_uid="${LICENSEHUB_APP_UID:-10001}"
+  local postgres_uid="${LICENSEHUB_POSTGRES_UID:-70}"
+  [[ "$app_uid" =~ ^[0-9]+$ && "$postgres_uid" =~ ^[0-9]+$ ]] || {
+    echo "secret file UIDs must be numeric" >&2
+    return 1
+  }
+  umask 077
+  mkdir -p "$LICENSEHUB_SECRETS_DIR"
+  LICENSEHUB_SECRETS_DIR="$(cd "$LICENSEHUB_SECRETS_DIR" && pwd -P)"
+  export LICENSEHUB_SECRETS_DIR
+  chmod 0700 "$LICENSEHUB_SECRETS_DIR"
+
+  licensehub_materialize_secret postgres_password POSTGRES_PASSWORD "$postgres_uid"
+  licensehub_materialize_secret database_url DATABASE_URL "$app_uid"
+  licensehub_materialize_secret jwt_secret JWT_SECRET "$app_uid"
+  licensehub_materialize_secret license_signing_key LICENSE_SIGNING_KEY "$app_uid"
+  licensehub_materialize_secret release_key_encryption_key RELEASE_KEY_ENCRYPTION_KEY "$app_uid"
+  licensehub_materialize_secret metrics_token METRICS_TOKEN "$app_uid"
+  licensehub_materialize_secret smtp_password SMTP_PASSWORD "$app_uid"
+  licensehub_materialize_secret storage_access_key STORAGE_ACCESS_KEY "$app_uid"
+  licensehub_materialize_secret storage_secret_key STORAGE_SECRET_KEY "$app_uid"
 }
 
 licensehub_require_secure_hook() {
