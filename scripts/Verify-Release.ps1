@@ -15,6 +15,18 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
 $release = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
 $failures = @()
 foreach ($artifact in $release.artifacts) {
+    if (-not $artifact.path) {
+        if (-not $artifact.verified) {
+            $failures += "unverified deployed/release artifact: $($artifact.name)"
+        }
+        if ($artifact.sha256 -and ([string]$artifact.sha256 -notmatch '^[0-9a-f]{64}$')) {
+            $failures += "invalid SHA-256: $($artifact.name)"
+        }
+        if ($artifact.image_id -and ([string]$artifact.image_id -notmatch '^sha256:[0-9a-f]{64}$')) {
+            $failures += "invalid image ID: $($artifact.name)"
+        }
+        continue
+    }
     $path = [IO.Path]::GetFullPath((Join-Path $workspace ([string]$artifact.path)))
     if (-not $path.StartsWith($workspacePrefix, [StringComparison]::OrdinalIgnoreCase)) {
         $failures += "path escapes workspace: $($artifact.path)"
