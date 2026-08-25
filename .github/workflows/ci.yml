@@ -125,6 +125,9 @@ jobs:
         run: bash -n deploy/*.sh tests/deployment/*.sh
       - name: Prove file-backed secret materialization
         run: bash tests/deployment/Test-SecretMaterialization.sh
+      - name: Prove Windows-to-Linux migration bundle
+        shell: pwsh
+        run: ./tests/deployment/Test-MigrationBundleLineEndings.ps1
       - name: Prove restore rollback
         run: bash tests/deployment/Test-RestoreRollback.sh
       - name: Validate standalone Compose
