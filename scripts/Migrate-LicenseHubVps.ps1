@@ -116,6 +116,21 @@ if ($PSCmdlet.ShouldProcess($destinationPath, 'Create VPS migration staging dire
         Copy-Item -LiteralPath $source -Destination $webTarget -Recurse
     }
 
+    # Copy-Item preserves the source checkout's line endings. A bundle staged
+    # on Windows must still contain Linux-executable scripts and deterministic
+    # migration SQL on the VPS, independent of local Git settings.
+    $linuxTextNames = @('Dockerfile', '.dockerignore')
+    $linuxTextExtensions = @('.sh', '.sql', '.yml', '.yaml')
+    $utf8NoBom = [Text.UTF8Encoding]::new($false)
+    foreach ($file in Get-ChildItem -LiteralPath $destinationPath -File -Recurse) {
+        if ($file.Name -notin $linuxTextNames -and $file.Extension -notin $linuxTextExtensions) {
+            continue
+        }
+        $content = [IO.File]::ReadAllText($file.FullName)
+        $normalized = $content.Replace("`r`n", "`n")
+        [IO.File]::WriteAllText($file.FullName, $normalized, $utf8NoBom)
+    }
+
     $lines = foreach ($file in Get-ChildItem -LiteralPath $destinationPath -File -Recurse) {
         $relative = [IO.Path]::GetRelativePath($destinationPath, $file.FullName).Replace('\', '/')
         $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()

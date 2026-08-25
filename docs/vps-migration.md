@@ -12,6 +12,8 @@ identity, encryption configuration, product IDs and license records.
    Run `Verify-MigrationBundle.ps1 -Bundle <path>` before transfer. It rejects
    missing, modified, path-escaping or unchecksummed files and reports the exact
    source commit plus dirty-worktree state captured in `migration-metadata.json`.
+   Linux scripts, Compose files, Docker build inputs and migration SQL are
+   normalized to LF in the bundle even when it is staged from Windows.
    For a clean initial/source-only bundle where no local database exists, use
    `-SkipBackup`; take the authoritative backup on the source VPS instead.
 3. Copy the self-contained bundle (`deploy/`, `server/`, `backup/`) to the new

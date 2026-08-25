@@ -1,0 +1,13 @@
+* text=auto
+
+# Linux deployment and database inputs must survive Windows checkouts and
+# archives byte-for-byte executable on the target host.
+*.sh text eol=lf
+*.sql text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Dockerfile text eol=lf
+*.dockerignore text eol=lf
+
+# Windows-native operator entrypoints retain their native line endings.
+*.ps1 text eol=crlf
