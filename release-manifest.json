@@ -1,32 +1,47 @@
 {
-  "format_version": 1,
-  "release": "0.1.0",
-  "deployment_status": "historical_baseline_only",
-  "current_hardened_branch_deployed": false,
-  "created_at_utc": "2026-08-21T22:20:51Z",
-  "platform": "windows-x64",
+  "format_version": 2,
+  "release": "0.2.1",
+  "tag": "v0.2.1",
+  "deployment_status": "production_hardened_active",
+  "current_hardened_branch_deployed": true,
+  "source_commit": "b84eb740ff2797fe9412430d13f02386b48a1df5",
+  "production_host": "license.zmmo.shop",
+  "deployed_at_utc": "2026-08-25T00:56:16Z",
   "artifacts": [
-    {"name":"licensehub-server","path":"server/bin/licensehub-server-final.exe","bytes":36344832,"sha256":"917381ad5c1620f12ed238eded0a6930dbde6cef22f74d2d0d32e4426bb05499"},
-    {"name":"license-core","path":"core/target/release/license_core.dll","bytes":3731968,"sha256":"ab48c0840fc3203bf179d67a0486e4c8c4b00b11686ee153f47a1e3b1f6a9afe"},
-    {"name":"licensehub-console-portable","path":"console/src-tauri/target/release/licensehub-console.exe","bytes":12845056,"sha256":"5ef0178c38bbbb69dd6baddf45b7c7cfd43a7d901b3e5b58ef693ae650413c9f"},
-    {"name":"licensehub-console-installer","path":"console/src-tauri/target/release/bundle/nsis/LicenseHub Console_0.1.0_x64-setup.exe","bytes":3425761,"sha256":"55837cbd5b7bc6dea24227fc45359cf51ddc2a41eff73621791b6475ba717707"},
-    {"name":"dotnet-binding","path":"bindings/dotnet/dist/LicenseHub.Licensing.0.1.0.nupkg","bytes":1648880,"sha256":"c2c9eba875a994c4d9dd3bfec217900ed052654d0d2f409e2adfd73358d74191"},
-    {"name":"node-electron-binding","path":"bindings/node/dist/licensehub-licensing-0.1.0.tgz","bytes":1686759,"sha256":"f8b35e9e569cbe4fab57da8416ab1f31161db5125ac7ac4d21cb863a7c8bda8b"},
-    {"name":"python-binding","path":"bindings/python/dist/licensehub_licensing-0.1.0-py3-none-win_amd64.whl","bytes":1641245,"sha256":"727149c3cb38cb3eb05e85e8df07402f5d05ae9b7326cb1b7e752dd1972e82a7"},
-    {"name":"licctl","path":"cli/licctl/dist/win-x64/licctl.exe","bytes":67507222,"sha256":"0ebad2a758d452d20186ed0440214a7d640687926fb5005ea9cd695e20388af7"}
+    {
+      "name": "licctl-portable-win-x64.zip",
+      "bytes": 44372852,
+      "sha256": "75bf4d6cc5aa690bb63e097ffcb85177b93fac5f868f11eca26b0984a62f92ba",
+      "verified": true
+    },
+    {
+      "name": "licensehub-server:0.2.1",
+      "deployment": "production-local-image",
+      "image_id": "sha256:1d195aec94bbf5155ec7150d48adea3a205fd4a7de12a1b622c26578a3fbf1f8",
+      "user": "10001:10001",
+      "verified": true
+    }
   ],
   "verification": {
-    "go_unit_vet_build":"pass",
-    "rust_fmt_clippy_tests_release":"pass (13 tests)",
-    "console_lint_tests_web_desktop":"pass (12 tests)",
-    "protocol_contract":"pass",
-    "bindings_smoke":"pass (.NET, Node, Python, C++)",
-    "licctl_four_stack_generation":"pass (self-contained win-x64)",
-    "docker_compose_and_edge_hardening":"pass (standalone and external-edge topology; local verification)",
-    "browser_qa":"pass",
-    "live_postgresql_restore_and_activation_race":"pass (machine A allowed, machine B denied, transactional restore verified)",
-    "production_https_acceptance":"historical pass (license.zmmo.shop; not evidence for the current hardened branch)",
-    "production_lifecycle":"historical pass (refresh, entitlements, quota, restart persistence, revoke, audit)"
+    "protected_github_checks": "pass (Go, Rust, web, deployment, Windows portable client, secret scan)",
+    "go_suite": "pass",
+    "rust_workspace": "pass (14 tests)",
+    "licctl_four_stack": "pass (.NET, Electron, Python, C++)",
+    "portable_archive": "pass (independent post-download verification)",
+    "production_public_acceptance": "pass",
+    "production_direct_origin_denial": "pass (HTTP and HTTPS by license hostname)",
+    "production_smtp_otp": "pass (synchronous delivery, login, owner role)",
+    "production_logout_replay": "pass (replayed session rejected with HTTP 401)",
+    "production_restart_persistence": "pass",
+    "production_audit_outbox": "pass (login/logout audited, zero pending)",
+    "production_monitor": "pass (five-minute timer)",
+    "production_encrypted_backup": "pass (daily timer and manual run)",
+    "production_owner_passkey_enrollment": "pending user presence gesture"
+  },
+  "rollback": {
+    "previous_release": "/srv/licensehub/releases/0.1.0-r4",
+    "pre_deploy_backup": "/srv/licensehub/releases/0.2.1-r2/backups/pre-deploy/20260825T005503Z",
+    "post_deploy_backup": "/srv/licensehub/releases/0.2.1-r2/backups/20260825T010834Z"
   },
   "authenticode":"not_signed_no_certificate_supplied"
 }

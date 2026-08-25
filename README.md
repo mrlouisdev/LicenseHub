@@ -22,14 +22,17 @@ Native DLLs are generated from the pinned Rust toolchain, never committed. The
 Windows workflow builds once, synchronizes identical bytes into every adapter,
 then tests and packages the portable artifact.
 
-## Install the management app
+## Get the reusable integration kit
 
 ```powershell
-Start-Process '.\console\src-tauri\target\release\bundle\nsis\LicenseHub Console_0.1.0_x64-setup.exe'
+gh release download v0.2.1 --repo mrlouisdev/LicenseHub --pattern 'licctl-portable-win-x64*'
+Get-FileHash .\licctl-portable-win-x64.zip -Algorithm SHA256
+Expand-Archive .\licctl-portable-win-x64.zip .\licctl
 ```
 
-First launch opens **Connection settings**. Choose a LicenseHub VPS or explicit
-Demo mode. Production mode is selected at runtime, never baked into the build.
+Expected SHA-256 is recorded in `release-manifest.json` and in the attached
+`.sha256` release asset. The extracted `licctl.exe` generates, installs,
+diagnoses, live-verifies and removes kits without a source checkout.
 
 ## Start the VPS stack
 
@@ -39,14 +42,13 @@ On a Linux VPS, use the checked deployment scripts in this order:
 2. `bootstrap.sh` to create the owner before Caddy is exposed.
 3. `verify.sh` for the public edge gate.
 
-For local Compose development, copy the environment template and replace every
-`CHANGE_ME` value:
+For local Compose development, copy the environment template, replace every
+`CHANGE_ME` value, then use the checked runtime helper so file-backed secrets
+are materialized before Compose is evaluated:
 
 ```powershell
 Copy-Item deploy/.env.example deploy/.env
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml config
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml ps
+bash -lc 'export LICENSEHUB_ENV_FILE=deploy/.env; source deploy/lib.sh; licensehub_require_runtime; licensehub_compose config --quiet; licensehub_compose up -d --build'
 ```
 
 Production exposes only Caddy on ports 80/443. PostgreSQL and the server stay on

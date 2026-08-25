@@ -1,9 +1,7 @@
 # Release verification
 
 This document separates the historical `0.1.0` target-VPS acceptance from the
-current hardened branch. The historical acceptance record remains useful
-evidence for the stable domain, but it does not prove that the hardened branch
-has been deployed to production.
+current production-hardened `0.2.1` release at commit `b84eb74`.
 
 ## Passed locally
 
@@ -46,15 +44,25 @@ The VPS retains a mode-0600 machine-readable acceptance record and two rollback
 layers: the pre-cutover HubFlow dump/config snapshot and LicenseHub's verified
 backup plus pre-restore safety dump.
 
-## Current hardened-branch gates
+## Current production acceptance (0.2.1)
 
-- Local Go, Rust, .NET, four-stack `licctl` fixtures and frontend verification
-  must pass from the checked-out commit before a deployment is staged.
-- A production claim requires a fresh backup, staged deploy evidence, public
-  HTTPS lifecycle verification, restart/revoke/logout replay checks, and a
-  direct-origin/edge check for the current image digest.
-- Until those checks are recorded for the current commit, production status is
-  `NOT DEPLOYED` even when the historical `0.1.0` acceptance record is present.
+- All six protected GitHub checks passed for the deployed source line.
+- The release archive hash and Linux line endings were verified before staging.
+- A fresh encrypted pre-deploy backup completed before the `0.2.1` image build.
+- The non-root image started against the historical migration checksums without
+  weakening SQL tamper detection; the new auth-security migration applied.
+- Public HTTPS health, public key ring, strict JSON, security headers and
+  metrics-404 gates passed through Cloudflare.
+- Direct-origin HTTP and HTTPS requests using the license hostname returned 403;
+  no host listener exposes the application port.
+- Gmail SMTP OTP delivery, OTP consumption, owner login and logout replay
+  rejection passed. Login/logout audit rows committed and the audit outbox was
+  empty after flushing.
+- Server restart preserved data and public acceptance. The five-minute monitor
+  and daily encrypted-backup timers are active; manual runs returned success.
+- First owner passkey enrollment remains an explicit user-presence gesture in a
+  supported browser. The backend and UI gate are deployed and regression-tested,
+  but this account-level ceremony cannot be claimed until the owner completes it.
 
 ## Release gates
 

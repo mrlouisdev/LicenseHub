@@ -69,7 +69,7 @@ try {
     Invoke-Checked { docker compose --env-file (Join-Path $workspace 'deploy\.env.example') -f (Join-Path $workspace 'deploy\docker-compose.yml') config --quiet } 'standalone Compose config'
     $env:EXTERNAL_EDGE_NETWORK = 'licensehub-verify-edge'
     Invoke-Checked { docker compose --env-file (Join-Path $workspace 'deploy\.env.example') -f (Join-Path $workspace 'deploy\docker-compose.integrated.yml') config --quiet } 'integrated Compose config'
-    Invoke-Checked { & (Join-Path $workspace 'scripts\Verify-Release.ps1') } 'historical artifact manifest'
+    Invoke-Checked { & (Join-Path $workspace 'scripts\Verify-Release.ps1') } 'release evidence manifest'
 
     if (-not $SkipPortable) {
         & (Join-Path $workspace 'scripts\Build-LicctlPortable.ps1') -OutputRoot $portableRoot | Out-Host
