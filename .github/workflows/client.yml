@@ -81,7 +81,7 @@ jobs:
           ./scripts/Verify-LicctlPortable.ps1 -Archive ./artifacts/ci/licctl-portable-win-x64.zip
           Get-FileHash ./artifacts/ci/licctl-portable-win-x64.zip -Algorithm SHA256
       - name: Upload verified portable distribution
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: licctl-portable-win-x64
           path: artifacts/ci/licctl-portable-win-x64.zip
